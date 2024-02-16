@@ -1,0 +1,238 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3
+					],
+					"jsonFile" : "directory-.-Release-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.7"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"build" : "path-fmz",
+					"jsonFile" : "directory-path-fmz-Release-8253ec3429292cfeacfa.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 1,
+					"source" : "path-fmz",
+					"targetIndexes" : 
+					[
+						3,
+						4,
+						5
+					]
+				},
+				{
+					"build" : "sutil",
+					"jsonFile" : "directory-sutil-Release-7db95924fa1135d31984.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.7"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "sutil",
+					"targetIndexes" : 
+					[
+						6
+					]
+				},
+				{
+					"build" : "support",
+					"childIndexes" : 
+					[
+						4,
+						6
+					],
+					"jsonFile" : "directory-support-Release-9b5e5b9a3ae061f1720b.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.7"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "support",
+					"targetIndexes" : 
+					[
+						0
+					]
+				},
+				{
+					"build" : "support/GLFW",
+					"childIndexes" : 
+					[
+						5
+					],
+					"jsonFile" : "directory-support.GLFW-Release-18ef895f3af31eabf3f3.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8.12"
+					},
+					"parentIndex" : 3,
+					"projectIndex" : 2,
+					"source" : "support/GLFW"
+				},
+				{
+					"build" : "support/GLFW/src",
+					"jsonFile" : "directory-support.GLFW.src-Release-40106c47113432fe0530.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "2.8.12"
+					},
+					"parentIndex" : 4,
+					"projectIndex" : 2,
+					"source" : "support/GLFW/src",
+					"targetIndexes" : 
+					[
+						1
+					]
+				},
+				{
+					"build" : "support/imgui",
+					"jsonFile" : "directory-support.imgui-Release-8e1e04c7f952f70fd2e2.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.7"
+					},
+					"parentIndex" : 3,
+					"projectIndex" : 0,
+					"source" : "support/imgui",
+					"targetIndexes" : 
+					[
+						2
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"childIndexes" : 
+					[
+						1,
+						2
+					],
+					"directoryIndexes" : 
+					[
+						0,
+						2,
+						3,
+						6
+					],
+					"name" : "OptiX-Samples",
+					"targetIndexes" : 
+					[
+						0,
+						2,
+						6
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						1
+					],
+					"name" : "path",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						3,
+						4,
+						5
+					]
+				},
+				{
+					"directoryIndexes" : 
+					[
+						4,
+						5
+					],
+					"name" : "GLFW",
+					"parentIndex" : 0,
+					"targetIndexes" : 
+					[
+						1
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 3,
+					"id" : "glad::@0c1e7a6a950cea0c3342",
+					"jsonFile" : "target-glad-Release-ee0bb57569adc64b6253.json",
+					"name" : "glad",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "glfw::@0c392f97e8c0d3c6246f",
+					"jsonFile" : "target-glfw-Release-8b4bce9ccc8fd7942fe8.json",
+					"name" : "glfw",
+					"projectIndex" : 2
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "imgui::@27ee99bd8b7f67f17bbd",
+					"jsonFile" : "target-imgui-Release-38fb541646688c0362d3.json",
+					"name" : "imgui",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "nvpath-fmz::@dc8a7072f29cc84a51dc",
+					"jsonFile" : "target-nvpath-fmz-Release-f202877e4cd1a1395369.json",
+					"name" : "nvpath-fmz",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "nvpath-fmz_autogen::@dc8a7072f29cc84a51dc",
+					"jsonFile" : "target-nvpath-fmz_autogen-Release-ddcb3f9880bb5ef0086a.json",
+					"name" : "nvpath-fmz_autogen",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "nvpath-fmz_autogen_timestamp_deps::@dc8a7072f29cc84a51dc",
+					"jsonFile" : "target-nvpath-fmz_autogen_timestamp_deps-Release-bb5d9df2df3056cc8769.json",
+					"name" : "nvpath-fmz_autogen_timestamp_deps",
+					"projectIndex" : 1
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "sutil_7_sdk::@e3a44a8f43826820e4b4",
+					"jsonFile" : "target-sutil_7_sdk-Release-0726cffba746d4603ff9.json",
+					"name" : "sutil_7_sdk",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/home/fzaghloul/workspace/cs2240/path2-fmz/SDK/build-SDK-Desktop_Qt_6_5_2_GCC_64bit-Release",
+		"source" : "/home/fzaghloul/workspace/cs2240/path2-fmz/SDK"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 6
+	}
+}
