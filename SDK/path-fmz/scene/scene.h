@@ -37,6 +37,7 @@ public:
     // returns all triangles in the scene whose material has non-zero emission
     const std::vector<Triangle*>& getEmissives() const { return m_emissives; };
 
+    const std::vector<Object *>* getObjects() const {return _objects;}
 private:
 
     BVH *m_bvh;

@@ -5,7 +5,7 @@
 
 #include <iostream>
 
-#include "pathtracer.h"
+//#include "pathtracer.h"
 #include "scene/scene.h"
 #include "util/timer.h"
 
@@ -13,14 +13,12 @@
 
 #include "util/CS123Common.h"
 
-#include "path-tracer.h"
+#include "path-tracer-interface.h"
 
 int main(int argc, char *argv[])
 {
     QCoreApplication a(argc, argv);
 
-    return main_2(argc, argv);
-/*
     QCommandLineParser parser;
     parser.addHelpOption();
     parser.addPositionalArgument("config", "Path of the config file.");
@@ -47,8 +45,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    PathTracer tracer(imageWidth, imageHeight);
-    tracer.settings = {
+    //PathTracer tracer(imageWidth, imageHeight);
+    TracerSettings tracer_settings = {
         .samplesPerPixel = settings.value("Settings/samplesPerPixel").toInt(),
         .directLightingOnly = settings.value("Settings/directLightingOnly").toBool(),
         .numDirectLightingSamples = settings.value("Settings/numDirectLightingSamples").toInt(),
@@ -58,7 +56,7 @@ int main(int argc, char *argv[])
     QRgb *data = reinterpret_cast<QRgb *>(image.bits());
 
     mytimer t;
-    tracer.traceScene(data, *scene);
+    runTracer(tracer_settings, reinterpret_cast<void*>(scene), nullptr);
     t.checkpoint();
 
     std::cout << "Traced paths in " << t.to_string() << std::endl;
@@ -74,5 +72,4 @@ int main(int argc, char *argv[])
         std::cerr << "Error: failed to write image to " << outputImagePath.toStdString() << std::endl;
     }
     a.exit();
-    */
 }

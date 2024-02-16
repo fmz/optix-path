@@ -18,13 +18,17 @@
 #include <GLFW/glfw3.h>
 
 // Internal includes
-#include "path-tracer.h"
+#include "path-tracer-interface.h"
 #include "sutil/sutil.h"
 #include "sutil/Exception.h"
 #include "sutil/GLDisplay.h"
 #include "sutil/Trackball.h"
 #include "sutil/CUDAOutputBuffer.h"
 #include "sutil/Camera.h"
+
+#include "hackyBuildAccel.h"
+
+#define DEBUG 0
 
 bool resize_dirty = false;
 bool minimized    = false;
@@ -37,9 +41,6 @@ sutil::Trackball trackball;
 // Mouse
 int32_t mouse_button = -1;
 
-
-int32_t samples_per_launch = 16;
-
 template <typename T>
 struct SbtRecord
 {
@@ -51,19 +52,6 @@ typedef SbtRecord<RayGenData>   RayGenSbtRecord;
 typedef SbtRecord<MissData>     MissSbtRecord;
 typedef SbtRecord<HitGroupData> HitGroupSbtRecord;
 
-
-struct Vertex {
-    float x, y, z, pad;
-};
-
-struct IndexedTriangle {
-    uint32_t v1, v2, v3, pad;
-};
-
-struct Instance {
-    float transform[12];
-};
-
 struct PathTracerState {
     OptixDeviceContext context = 0;
 
@@ -71,6 +59,8 @@ struct PathTracerState {
     OptixTraversableHandle gas_handle          = 0;
     CUdeviceptr            d_gas_output_buffer = 0;
     CUdeviceptr            d_vertices          = 0;
+    CUdeviceptr            d_indices           = 0;
+
 
     OptixModule                 optix_module = 0;
     OptixPipelineCompileOptions pco          = {};
@@ -87,6 +77,7 @@ struct PathTracerState {
 
     OptixShaderBindingTable sbt = {};
 };
+
 
 // Scene
 const int32_t TRIANGLE_COUNT = 32;
@@ -397,7 +388,7 @@ void displaySubframe(sutil::CUDAOutputBuffer<uchar4>& output_buffer, sutil::GLDi
     );
 }
 
-void initLaunchParams(PathTracerState& state) {
+void initLaunchParams(PathTracerState& state, const TracerSettings& settings) {
     CUDA_CHECK(cudaMalloc(
         reinterpret_cast<void**>(&state.params.accum_buffer),
         state.params.width * state.params.height * sizeof(float4)
@@ -405,13 +396,13 @@ void initLaunchParams(PathTracerState& state) {
 
     state.params.frame_buffer = nullptr;    // Will be mapped later
 
-    state.params.samples_per_launch = samples_per_launch;
+    state.params.samples_per_launch = settings.samplesPerPixel;
     state.params.subframe_index     = 0u;
 
     state.params.light.emission = make_float3( 15.0f, 15.0f, 5.0f );
-    state.params.light.corner   = make_float3( 343.0f, 548.5f, 227.0f );
-    state.params.light.v1       = make_float3( 0.0f, 0.0f, 105.0f );
-    state.params.light.v2       = make_float3( -130.0f, 0.0f, 0.0f );
+    state.params.light.corner   = make_float3( 0.23f, 1.98f, 0.16f );
+    state.params.light.v1       = make_float3( 0.0f, 0.0f, 0.16f );
+    state.params.light.v2       = make_float3( -0.24f, 0.0f, 0.0f );
     state.params.light.normal   = normalize(cross(state.params.light.v1, state.params.light.v2));
     state.params.handle         = state.gas_handle;
 
@@ -421,10 +412,14 @@ void initLaunchParams(PathTracerState& state) {
 
 void initCameraState()
 {
-    camera.setEye( make_float3( 278.0f, 273.0f, -900.0f ) );
-    camera.setLookat( make_float3( 278.0f, 273.0f, 330.0f ) );
+    // camera.setEye( make_float3( 278.0f, 273.0f, -900.0f ) );
+    // camera.setLookat( make_float3( 278.0f, 273.0f, 330.0f ) );
+    // camera.setUp( make_float3( 0.0f, 1.0f, 0.0f ) );
+    // camera.setFovY( 35.0f );
+    camera.setEye( make_float3( 0.0f, 1.0f, 3.6f ) );
+    camera.setLookat( make_float3( 0.0f, 1.0f, 0.0f ) );
     camera.setUp( make_float3( 0.0f, 1.0f, 0.0f ) );
-    camera.setFovY( 35.0f );
+    camera.setFovY( 45.0f );
     camera_changed = true;
 
     trackball.setCamera( &camera );
@@ -505,7 +500,6 @@ void buildMeshAccel(PathTracerState& state) {
     triangle_input.triangleArray.sbtIndexOffsetBuffer        = d_mat_indices;
     triangle_input.triangleArray.sbtIndexOffsetSizeInBytes   = sizeof(uint32_t);
     triangle_input.triangleArray.sbtIndexOffsetStrideInBytes = sizeof(uint32_t);
-
 
     OptixAccelBufferSizes gas_buffer_sizes;
     OPTIX_CHECK(optixAccelComputeMemoryUsage(
@@ -789,19 +783,9 @@ void cleanupState(PathTracerState& state) {
     CUDA_CHECK(cudaFree(reinterpret_cast<void*>(state.d_params)));
 }
 
-void printUsageAndExit( const char* argv0 ) {
-    std::cerr << "Usage  : " << argv0 << " [options]\n";
-    std::cerr << "Options: --file | -f <filename>      File for image output\n";
-    std::cerr << "         --launch-samples | -s       Number of samples per pixel per launch (default 16)\n";
-    std::cerr << "         --no-gl-interop             Disable GL interop for display\n";
-    std::cerr << "         --dim=<width>x<height>      Set image dimensions; defaults to 768x768\n";
-    std::cerr << "         --help | -h                 Print this usage message\n";
-    exit( 0 );
-}
-
 int32_t runTracer(
-    const Settings& settings,
-    Scene& scene,
+    const TracerSettings& settings,
+    void* scene,
     QRgb* data_out
  ) {
     PathTracerState state;
@@ -809,50 +793,22 @@ int32_t runTracer(
     state.params.height = 720;
 
     sutil::CUDAOutputBufferType output_buffer_type = sutil::CUDAOutputBufferType::GL_INTEROP;
-
-    std::string outfile;
-
-    for (int32_t i = 1; i < argc; i++) {
-        const std::string arg = argv[i];
-        if( arg == "--help" || arg == "-h" ) {
-            printUsageAndExit( argv[0] );
-        } else if( arg == "--no-gl-interop" ) {
-            output_buffer_type = sutil::CUDAOutputBufferType::CUDA_DEVICE;
-        } else if( arg == "--file" || arg == "-f" ) {
-            if( i >= argc - 1 )
-                printUsageAndExit( argv[0] );
-            outfile = argv[++i];
-        } else if( arg.substr( 0, 6 ) == "--dim=" ) {
-            const std::string dims_arg = arg.substr( 6 );
-            int w, h;
-            sutil::parseDimensions( dims_arg.c_str(), w, h );
-            state.params.width  = w;
-            state.params.height = h;
-        } else if( arg == "--launch-samples" || arg == "-s" ) {
-            if( i >= argc - 1 )
-                printUsageAndExit( argv[0] );
-            samples_per_launch = atoi( argv[++i] );
-        } else {
-            std::cerr << "Unknown option '" << argv[i] << "'\n";
-            printUsageAndExit( argv[0] );
-        }
-    }
-
+    // output_buffer_type = sutil::CUDAOutputBufferType::CUDA_DEVICE;
     try {
         // Cam
         initCameraState();
 
         // Optix state
         createContext(state);
-        buildMeshAccel(state);
+        buildMeshAccel2(reinterpret_cast<PathTracerHackyState*>(&state), scene);
         createModule(state);
         createProgramGroups(state);
         createPipeline(state);
         createSBT(state);
-        initLaunchParams(state);
+        initLaunchParams(state, settings);
 
         // Launch
-        if (outfile.empty()) {
+        if (data_out == nullptr) {
             GLFWwindow* window = sutil::initUI( "RTX - ON", state.params.width, state.params.height );
             glfwSetMouseButtonCallback( window, mouseButtonCallback );
             glfwSetCursorPosCallback( window, cursorPosCallback );
@@ -930,7 +886,8 @@ int32_t runTracer(
                 buffer.height       = output_buffer.height();
                 buffer.pixel_format = sutil::BufferImageFormat::UNSIGNED_BYTE4;
 
-                sutil::saveImage( outfile.c_str(), buffer, false );
+                // FIXME
+                //sutil::saveImage( outfile.c_str(), buffer, false );
             }
 
             if( output_buffer_type == sutil::CUDAOutputBufferType::GL_INTEROP ) {

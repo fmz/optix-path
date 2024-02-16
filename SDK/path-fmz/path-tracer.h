@@ -5,7 +5,7 @@
 
 #include <optix_types.h>
 
-struct Settings {
+struct TracerSettings {
     int32_t samplesPerPixel;
     bool directLightingOnly;      // if true, ignore indirect lighting
     int32_t numDirectLightingSamples; // number of shadow rays to trace from each intersection point

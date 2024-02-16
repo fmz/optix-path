@@ -66,6 +66,8 @@ OPTIX_add_sample_executable( nvpath-fmz target_name
 target_sources(nvpath-fmz
   PRIVATE
     path-tracer-interface.h
+    hackyBuildAccel.h
+    hackyBuildAcce.cpp
 )
 
 target_link_libraries(${target_name} PRIVATE
