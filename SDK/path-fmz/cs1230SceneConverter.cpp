@@ -16,6 +16,16 @@ static inline T max(const T& a, const T& b, const T& c) {
     return a > b ? a > c ? a : c : b > c ? b : c;
 }
 
+static float3 getNormalFromVertices(const Eigen::Vector3f& v0,
+                                    const Eigen::Vector3f& v1,
+                                    const Eigen::Vector3f& v2) {
+    Eigen::Vector3f a = v1 - v0;
+    Eigen::Vector3f b = v2 - v0;
+
+    Eigen::Vector3f n = a.cross(b).normalized();
+    return eigen_to_vec_f(n);
+}
+
 SceneConverter::SceneConverter(void* scn) {
     // HACK!
     Scene* scene = reinterpret_cast<Scene*>(scn);
@@ -39,12 +49,46 @@ SceneConverter::SceneConverter(void* scn) {
         }
 
         // Vertices and normals
+        bool normals_present = true;
         for (uint32_t i = 0; i <= max_idx; i++) {
             Eigen::Vector3f vertex = mesh->getVertex(i);
-            Eigen::Vector3f normal = mesh->getNormal(i);
             float a = vertex(0), b = vertex(1), c = vertex(2);
             vertices.push_back({a, b, c, 0.f});
+
+            if (!normals_present) {
+                // Need to compute the normals after this loop
+                continue;
+            }
+
+            Eigen::Vector3f normal = mesh->getNormal(i);
+            if (floatEpsEqual(normal(0), 0) &&
+                floatEpsEqual(normal(1), 0) &&
+                floatEpsEqual(normal(2), 0)
+            ) {
+                normals_present = false;
+                continue;
+            }
             normals.push_back(eigen_to_vec_f(normal));
+        }
+
+        // Compute normals if not present
+        if (!normals_present) {
+            normals.resize(vertices.size());
+            for (int32_t i = 0; i < tri_count; i++) {
+                Eigen::Vector3i tri_vs = mesh->getTriangleIndices(i);
+                int32_t v0_idx = tri_vs(0);
+                int32_t v1_idx = tri_vs(1);
+                int32_t v2_idx = tri_vs(2);
+
+                Eigen::Vector3f v0 = mesh->getVertex(v0_idx);
+                Eigen::Vector3f v1 = mesh->getVertex(v1_idx);
+                Eigen::Vector3f v2 = mesh->getVertex(v2_idx);
+
+                normals[v0_idx] = getNormalFromVertices(v0, v1, v2);
+                normals[v1_idx] = getNormalFromVertices(v1, v2, v0);
+                normals[v2_idx] = getNormalFromVertices(v2, v0, v1);
+
+            }
         }
 
         // Also consider collapsing the loop below with the ones above
@@ -98,19 +142,13 @@ SceneConverter::SceneConverter(void* scn) {
                 Eigen::Vector3i tri_vs = mesh->getTriangleIndices(i);
                 Eigen::Vector3f v0 = mesh->getVertex(tri_vs(0));
                 Eigen::Vector3f v1 = mesh->getVertex(tri_vs(1));
-                Eigen::Vector3f v2 = mesh->getVertex(tri_vs(2));
-
-                v1 = v0 - v1;
-                v2 = v0 - v2;
-
-                Eigen::Vector3f normal = v1.cross(v2).normalized();
-
+                Eigen::Vector3f v2 = mesh->getVertex(tri_vs(2));;
 
                 light.emission = emiss;
                 light.corner = eigen_to_vec_f(v0);
-                light.v1     = eigen_to_vec_f(v1);
-                light.v2     = eigen_to_vec_f(v2);
-                light.normal = eigen_to_vec_f(normal);
+                light.v1     = eigen_to_vec_f(v0 - v1);
+                light.v2     = eigen_to_vec_f(v0 - v2);
+                light.normal = getNormalFromVertices(v0, v1, v2);
 
                 light_found = true;
             }
@@ -119,7 +157,6 @@ SceneConverter::SceneConverter(void* scn) {
 
     mat_count = diffuse.size();
     tri_count = indices.size();
-
 
     // Camera
     const BasicCamera& cam = scene->getCamera();

@@ -14,16 +14,14 @@ struct OrthonormalBasis {
     __forceinline__ __device__ OrthonormalBasis(const float3& normal) {
         m_normal = normal;
 
-        if(fabs(m_normal.x) > fabs(m_normal.z)) {
-            m_binormal.x = -m_normal.y;
-            m_binormal.y =  m_normal.x;
-            m_binormal.z =  0;
-        } else {
-            m_binormal.x =  0;
-            m_binormal.y = -m_normal.z;
-            m_binormal.z =  m_normal.y;
-        }
+        float x = normal.x, y = normal.y, z = normal.z;
 
+        // Lifted from pbrt
+        float sign = z >= 0.f ? 1.f : -1.f;
+        float a = -1.f / (sign + z);
+        float b = x * y * a;
+
+        m_binormal = {b, sign + y*y, -y};
         m_binormal = normalize(m_binormal);
         m_tangent  = cross(m_binormal, m_normal);
     }
@@ -206,6 +204,7 @@ __global__ void __raygen__path_tracer() {
     const float3  U   = params.cam_u;
     const float3  V   = params.cam_v;
     const float3  W   = params.cam_w;
+    const float cont_prob = params.continuation_prob;
 
     const uint3   idx          = optixGetLaunchIndex();
     const int32_t subframe_idx = params.subframe_index;
@@ -240,7 +239,7 @@ __global__ void __raygen__path_tracer() {
                 params.handle,
                 ray_o,
                 ray_d,
-                0.01f,  // tmin
+                0.0001f,  // tmin
                 1e16f,  // tmax
                 prd
             );
@@ -249,6 +248,10 @@ __global__ void __raygen__path_tracer() {
 
             const float p = dot(prd.attenuation, {0.3f, 0.59f, 0.11f});
             const bool done = prd.done || rnd(prd.seed) > p;
+
+            // Russian Roulette
+            // const float p = rnd(prd.seed);
+            // const bool done = prd.done || (p > cont_prob);
             if (done) {
                 break;
             }
@@ -290,6 +293,7 @@ __global__ void __miss__radiance()
 
 static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, int32_t vert_idx) {
     const float3 n1  = normalize(rt_data->normals[vert_idx+0]);
+    // if the
     const float3 n2  = normalize(rt_data->normals[vert_idx+1]);
     const float3 n3  = normalize(rt_data->normals[vert_idx+2]);
 
@@ -303,7 +307,6 @@ static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, 
     return interpolated_normal;
 }
 
-
 __global__ void __closesthit__radiance() {
     optixSetPayloadTypes(PAYLOAD_TYPE_RADIANCE);
 
@@ -313,13 +316,9 @@ __global__ void __closesthit__radiance() {
     const float3 ray_dir         = optixGetWorldRayDirection();
     const int    vert_idx_offset = prim_idx*3;
 
-    const float3 v0   = make_float3(rt_data->vertices[vert_idx_offset+0]);
-    const float3 v1   = make_float3(rt_data->vertices[vert_idx_offset+1]);
-    const float3 v2   = make_float3(rt_data->vertices[vert_idx_offset+2]);
-    //const float3 N_0  = normalize(cross(v1-v0, v2-v0));
     const float3 n    = getNormal(rt_data, vert_idx_offset);
 
-    const float3 N    = faceforward(n, -ray_dir, n);
+    const float3 N    = n;//aceforward(n, -ray_dir, n);
     const float3 P    = optixGetWorldRayOrigin() + optixGetRayTmax()*ray_dir;
 
     RadiancePRD prd = loadClosesthitRadiancePRD();
@@ -365,8 +364,8 @@ __global__ void __closesthit__radiance() {
                 params.handle,
                 P,
                 L,
-                0.01f,           // tmin
-                Ldist - 0.01f);  // tmax
+                0.0001f,           // tmin
+                Ldist - 0.0001f);  // tmax
 
         if( !occluded ) {
             const float A = length(cross(light.v1, light.v2));

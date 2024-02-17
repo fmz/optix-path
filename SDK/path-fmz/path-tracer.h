@@ -72,6 +72,7 @@ struct Params {
     uint32_t width;
     uint32_t height;
     uint32_t samples_per_launch;
+    float continuation_prob;
 
     float3 cam_eye;
     float3 cam_u, cam_v, cam_w;

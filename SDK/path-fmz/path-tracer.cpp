@@ -28,7 +28,7 @@
 
 #include "cs1230SceneConverter.h"
 
-#define DEBUG 0
+//#define DEBUG 1
 
 bool resize_dirty = false;
 bool minimized    = false;
@@ -398,6 +398,7 @@ void initLaunchParams(PathTracerState& state, const TracerSettings& settings, Sc
     state.params.frame_buffer = nullptr;    // Will be mapped later
 
     state.params.samples_per_launch = settings.samplesPerPixel;
+    state.params.continuation_prob  = settings.pathContinuationProb;
     state.params.subframe_index     = 0u;
 
     state.params.light = sc.light;
@@ -718,7 +719,7 @@ void createPipeline(PathTracerState& state) {
         direct_callable_stack_size_from_traversal,
         direct_callable_stack_size_from_state,
         continuation_stack_size,
-        1   // maxTraversableDepth
+        1  // maxTraversableDepth
     ));
 }
 
