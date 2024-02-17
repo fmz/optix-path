@@ -76,7 +76,7 @@ struct Params {
     float3 cam_eye;
     float3 cam_u, cam_v, cam_w;
 
-    ParallelogramLight   light;  // FIXME
+    ParallelogramLight   light;  // Hack: we assume a single parallelogram light for this project
     OptixTraversableHandle handle;
 };
 
@@ -91,4 +91,5 @@ struct HitGroupData {
     float3  emission_color;
     float3  diffuse_color;
     float4* vertices;
+    float3* normals;
 };

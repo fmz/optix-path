@@ -217,7 +217,7 @@ __global__ void __raygen__path_tracer() {
     float3 result = {0.f, 0.f, 0.f};
     int32_t spl = params.samples_per_launch;
     for (int32_t i = 0; i < spl; i++) {
-        // Map thread id to screen location, and shoot a ray out.
+        // Map thread id to screen coords, and shoot a ray out (in world coords)
 
         // Vary the target pixel by 0.5 in each direction when mapping to screen space.
         const float2 subpixel_offset = {rnd(seed), rnd(seed)};
@@ -273,7 +273,7 @@ __global__ void __raygen__path_tracer() {
     params.frame_buffer[image_idx] = make_color (accum_color);
 }
 
-extern "C" __global__ void __miss__radiance()
+__global__ void __miss__radiance()
 {
     optixSetPayloadTypes(PAYLOAD_TYPE_RADIANCE);
 
@@ -287,7 +287,24 @@ extern "C" __global__ void __miss__radiance()
     storeMissRadiancePRD(prd);
 }
 
-extern "C" __global__ void __closesthit__radiance() {
+
+static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, int32_t vert_idx) {
+    const float3 n1  = normalize(rt_data->normals[vert_idx+0]);
+    const float3 n2  = normalize(rt_data->normals[vert_idx+1]);
+    const float3 n3  = normalize(rt_data->normals[vert_idx+2]);
+
+    // Get barycentric coords
+    const float2 bc = optixGetTriangleBarycentrics();
+    float v = bc.x;
+    float w = bc.y;
+    float u = 1.f - v - w;
+
+    float3 interpolated_normal = normalize(u * n1 + v * n2 + w * n3);
+    return interpolated_normal;
+}
+
+
+__global__ void __closesthit__radiance() {
     optixSetPayloadTypes(PAYLOAD_TYPE_RADIANCE);
 
     HitGroupData* rt_data = (HitGroupData*)optixGetSbtDataPointer();
@@ -299,9 +316,10 @@ extern "C" __global__ void __closesthit__radiance() {
     const float3 v0   = make_float3(rt_data->vertices[vert_idx_offset+0]);
     const float3 v1   = make_float3(rt_data->vertices[vert_idx_offset+1]);
     const float3 v2   = make_float3(rt_data->vertices[vert_idx_offset+2]);
-    const float3 N_0  = normalize(cross(v1-v0, v2-v0));
+    //const float3 N_0  = normalize(cross(v1-v0, v2-v0));
+    const float3 n    = getNormal(rt_data, vert_idx_offset);
 
-    const float3 N    = faceforward(N_0, -ray_dir, N_0);
+    const float3 N    = faceforward(n, -ray_dir, n);
     const float3 P    = optixGetWorldRayOrigin() + optixGetRayTmax()*ray_dir;
 
     RadiancePRD prd = loadClosesthitRadiancePRD();

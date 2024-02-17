@@ -26,7 +26,7 @@
 #include "sutil/CUDAOutputBuffer.h"
 #include "sutil/Camera.h"
 
-#include "hackyBuildAccel.h"
+#include "cs1230SceneConverter.h"
 
 #define DEBUG 0
 
@@ -60,6 +60,7 @@ struct PathTracerState {
     CUdeviceptr            d_gas_output_buffer = 0;
     CUdeviceptr            d_vertices          = 0;
     CUdeviceptr            d_indices           = 0;
+    CUdeviceptr            d_normals           = 0;
 
 
     OptixModule                 optix_module = 0;
@@ -80,175 +81,175 @@ struct PathTracerState {
 
 
 // Scene
-const int32_t TRIANGLE_COUNT = 32;
-const int32_t MAT_COUNT      = 4;
+// const int32_t TRIANGLE_COUNT = 32;
+// const int32_t MAT_COUNT      = 4;
 
-const static std::array<Vertex, TRIANGLE_COUNT* 3> g_vertices =
-    {  {
-        // Floor  -- white lambert
-        {    0.0f,    0.0f,    0.0f, 0.0f },
-        {    0.0f,    0.0f,  559.2f, 0.0f },
-        {  556.0f,    0.0f,  559.2f, 0.0f },
-        {    0.0f,    0.0f,    0.0f, 0.0f },
-        {  556.0f,    0.0f,  559.2f, 0.0f },
-        {  556.0f,    0.0f,    0.0f, 0.0f },
+// const static std::array<Vertex, TRIANGLE_COUNT* 3> g_vertices =
+//     {  {
+//         // Floor  -- white lambert
+//         {    0.0f,    0.0f,    0.0f, 0.0f },
+//         {    0.0f,    0.0f,  559.2f, 0.0f },
+//         {  556.0f,    0.0f,  559.2f, 0.0f },
+//         {    0.0f,    0.0f,    0.0f, 0.0f },
+//         {  556.0f,    0.0f,  559.2f, 0.0f },
+//         {  556.0f,    0.0f,    0.0f, 0.0f },
 
-        // Ceiling -- white lambert
-        {    0.0f,  548.8f,    0.0f, 0.0f },
-        {  556.0f,  548.8f,    0.0f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
+//         // Ceiling -- white lambert
+//         {    0.0f,  548.8f,    0.0f, 0.0f },
+//         {  556.0f,  548.8f,    0.0f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
 
-        {    0.0f,  548.8f,    0.0f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
-        {    0.0f,  548.8f,  559.2f, 0.0f },
+//         {    0.0f,  548.8f,    0.0f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
+//         {    0.0f,  548.8f,  559.2f, 0.0f },
 
-        // Back wall -- white lambert
-        {    0.0f,    0.0f,  559.2f, 0.0f },
-        {    0.0f,  548.8f,  559.2f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
+//         // Back wall -- white lambert
+//         {    0.0f,    0.0f,  559.2f, 0.0f },
+//         {    0.0f,  548.8f,  559.2f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
 
-        {    0.0f,    0.0f,  559.2f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
-        {  556.0f,    0.0f,  559.2f, 0.0f },
+//         {    0.0f,    0.0f,  559.2f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
+//         {  556.0f,    0.0f,  559.2f, 0.0f },
 
-        // Right wall -- green lambert
-        {    0.0f,    0.0f,    0.0f, 0.0f },
-        {    0.0f,  548.8f,    0.0f, 0.0f },
-        {    0.0f,  548.8f,  559.2f, 0.0f },
+//         // Right wall -- green lambert
+//         {    0.0f,    0.0f,    0.0f, 0.0f },
+//         {    0.0f,  548.8f,    0.0f, 0.0f },
+//         {    0.0f,  548.8f,  559.2f, 0.0f },
 
-        {    0.0f,    0.0f,    0.0f, 0.0f },
-        {    0.0f,  548.8f,  559.2f, 0.0f },
-        {    0.0f,    0.0f,  559.2f, 0.0f },
+//         {    0.0f,    0.0f,    0.0f, 0.0f },
+//         {    0.0f,  548.8f,  559.2f, 0.0f },
+//         {    0.0f,    0.0f,  559.2f, 0.0f },
 
-        // Left wall -- red lambert
-        {  556.0f,    0.0f,    0.0f, 0.0f },
-        {  556.0f,    0.0f,  559.2f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
+//         // Left wall -- red lambert
+//         {  556.0f,    0.0f,    0.0f, 0.0f },
+//         {  556.0f,    0.0f,  559.2f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
 
-        {  556.0f,    0.0f,    0.0f, 0.0f },
-        {  556.0f,  548.8f,  559.2f, 0.0f },
-        {  556.0f,  548.8f,    0.0f, 0.0f },
+//         {  556.0f,    0.0f,    0.0f, 0.0f },
+//         {  556.0f,  548.8f,  559.2f, 0.0f },
+//         {  556.0f,  548.8f,    0.0f, 0.0f },
 
-        // Short block -- white lambert
-        {  130.0f,  165.0f,   65.0f, 0.0f },
-        {   82.0f,  165.0f,  225.0f, 0.0f },
-        {  242.0f,  165.0f,  274.0f, 0.0f },
+//         // Short block -- white lambert
+//         {  130.0f,  165.0f,   65.0f, 0.0f },
+//         {   82.0f,  165.0f,  225.0f, 0.0f },
+//         {  242.0f,  165.0f,  274.0f, 0.0f },
 
-        {  130.0f,  165.0f,   65.0f, 0.0f },
-        {  242.0f,  165.0f,  274.0f, 0.0f },
-        {  290.0f,  165.0f,  114.0f, 0.0f },
+//         {  130.0f,  165.0f,   65.0f, 0.0f },
+//         {  242.0f,  165.0f,  274.0f, 0.0f },
+//         {  290.0f,  165.0f,  114.0f, 0.0f },
 
-        {  290.0f,    0.0f,  114.0f, 0.0f },
-        {  290.0f,  165.0f,  114.0f, 0.0f },
-        {  240.0f,  165.0f,  272.0f, 0.0f },
+//         {  290.0f,    0.0f,  114.0f, 0.0f },
+//         {  290.0f,  165.0f,  114.0f, 0.0f },
+//         {  240.0f,  165.0f,  272.0f, 0.0f },
 
-        {  290.0f,    0.0f,  114.0f, 0.0f },
-        {  240.0f,  165.0f,  272.0f, 0.0f },
-        {  240.0f,    0.0f,  272.0f, 0.0f },
+//         {  290.0f,    0.0f,  114.0f, 0.0f },
+//         {  240.0f,  165.0f,  272.0f, 0.0f },
+//         {  240.0f,    0.0f,  272.0f, 0.0f },
 
-        {  130.0f,    0.0f,   65.0f, 0.0f },
-        {  130.0f,  165.0f,   65.0f, 0.0f },
-        {  290.0f,  165.0f,  114.0f, 0.0f },
+//         {  130.0f,    0.0f,   65.0f, 0.0f },
+//         {  130.0f,  165.0f,   65.0f, 0.0f },
+//         {  290.0f,  165.0f,  114.0f, 0.0f },
 
-        {  130.0f,    0.0f,   65.0f, 0.0f },
-        {  290.0f,  165.0f,  114.0f, 0.0f },
-        {  290.0f,    0.0f,  114.0f, 0.0f },
+//         {  130.0f,    0.0f,   65.0f, 0.0f },
+//         {  290.0f,  165.0f,  114.0f, 0.0f },
+//         {  290.0f,    0.0f,  114.0f, 0.0f },
 
-        {   82.0f,    0.0f,  225.0f, 0.0f },
-        {   82.0f,  165.0f,  225.0f, 0.0f },
-        {  130.0f,  165.0f,   65.0f, 0.0f },
+//         {   82.0f,    0.0f,  225.0f, 0.0f },
+//         {   82.0f,  165.0f,  225.0f, 0.0f },
+//         {  130.0f,  165.0f,   65.0f, 0.0f },
 
-        {   82.0f,    0.0f,  225.0f, 0.0f },
-        {  130.0f,  165.0f,   65.0f, 0.0f },
-        {  130.0f,    0.0f,   65.0f, 0.0f },
+//         {   82.0f,    0.0f,  225.0f, 0.0f },
+//         {  130.0f,  165.0f,   65.0f, 0.0f },
+//         {  130.0f,    0.0f,   65.0f, 0.0f },
 
-        {  240.0f,    0.0f,  272.0f, 0.0f },
-        {  240.0f,  165.0f,  272.0f, 0.0f },
-        {   82.0f,  165.0f,  225.0f, 0.0f },
+//         {  240.0f,    0.0f,  272.0f, 0.0f },
+//         {  240.0f,  165.0f,  272.0f, 0.0f },
+//         {   82.0f,  165.0f,  225.0f, 0.0f },
 
-        {  240.0f,    0.0f,  272.0f, 0.0f },
-        {   82.0f,  165.0f,  225.0f, 0.0f },
-        {   82.0f,    0.0f,  225.0f, 0.0f },
+//         {  240.0f,    0.0f,  272.0f, 0.0f },
+//         {   82.0f,  165.0f,  225.0f, 0.0f },
+//         {   82.0f,    0.0f,  225.0f, 0.0f },
 
-        // Tall block -- white lambert
-        {  423.0f,  330.0f,  247.0f, 0.0f },
-        {  265.0f,  330.0f,  296.0f, 0.0f },
-        {  314.0f,  330.0f,  455.0f, 0.0f },
+//         // Tall block -- white lambert
+//         {  423.0f,  330.0f,  247.0f, 0.0f },
+//         {  265.0f,  330.0f,  296.0f, 0.0f },
+//         {  314.0f,  330.0f,  455.0f, 0.0f },
 
-        {  423.0f,  330.0f,  247.0f, 0.0f },
-        {  314.0f,  330.0f,  455.0f, 0.0f },
-        {  472.0f,  330.0f,  406.0f, 0.0f },
+//         {  423.0f,  330.0f,  247.0f, 0.0f },
+//         {  314.0f,  330.0f,  455.0f, 0.0f },
+//         {  472.0f,  330.0f,  406.0f, 0.0f },
 
-        {  423.0f,    0.0f,  247.0f, 0.0f },
-        {  423.0f,  330.0f,  247.0f, 0.0f },
-        {  472.0f,  330.0f,  406.0f, 0.0f },
+//         {  423.0f,    0.0f,  247.0f, 0.0f },
+//         {  423.0f,  330.0f,  247.0f, 0.0f },
+//         {  472.0f,  330.0f,  406.0f, 0.0f },
 
-        {  423.0f,    0.0f,  247.0f, 0.0f },
-        {  472.0f,  330.0f,  406.0f, 0.0f },
-        {  472.0f,    0.0f,  406.0f, 0.0f },
+//         {  423.0f,    0.0f,  247.0f, 0.0f },
+//         {  472.0f,  330.0f,  406.0f, 0.0f },
+//         {  472.0f,    0.0f,  406.0f, 0.0f },
 
-        {  472.0f,    0.0f,  406.0f, 0.0f },
-        {  472.0f,  330.0f,  406.0f, 0.0f },
-        {  314.0f,  330.0f,  456.0f, 0.0f },
+//         {  472.0f,    0.0f,  406.0f, 0.0f },
+//         {  472.0f,  330.0f,  406.0f, 0.0f },
+//         {  314.0f,  330.0f,  456.0f, 0.0f },
 
-        {  472.0f,    0.0f,  406.0f, 0.0f },
-        {  314.0f,  330.0f,  456.0f, 0.0f },
-        {  314.0f,    0.0f,  456.0f, 0.0f },
+//         {  472.0f,    0.0f,  406.0f, 0.0f },
+//         {  314.0f,  330.0f,  456.0f, 0.0f },
+//         {  314.0f,    0.0f,  456.0f, 0.0f },
 
-        {  314.0f,    0.0f,  456.0f, 0.0f },
-        {  314.0f,  330.0f,  456.0f, 0.0f },
-        {  265.0f,  330.0f,  296.0f, 0.0f },
+//         {  314.0f,    0.0f,  456.0f, 0.0f },
+//         {  314.0f,  330.0f,  456.0f, 0.0f },
+//         {  265.0f,  330.0f,  296.0f, 0.0f },
 
-        {  314.0f,    0.0f,  456.0f, 0.0f },
-        {  265.0f,  330.0f,  296.0f, 0.0f },
-        {  265.0f,    0.0f,  296.0f, 0.0f },
+//         {  314.0f,    0.0f,  456.0f, 0.0f },
+//         {  265.0f,  330.0f,  296.0f, 0.0f },
+//         {  265.0f,    0.0f,  296.0f, 0.0f },
 
-        {  265.0f,    0.0f,  296.0f, 0.0f },
-        {  265.0f,  330.0f,  296.0f, 0.0f },
-        {  423.0f,  330.0f,  247.0f, 0.0f },
+//         {  265.0f,    0.0f,  296.0f, 0.0f },
+//         {  265.0f,  330.0f,  296.0f, 0.0f },
+//         {  423.0f,  330.0f,  247.0f, 0.0f },
 
-        {  265.0f,    0.0f,  296.0f, 0.0f },
-        {  423.0f,  330.0f,  247.0f, 0.0f },
-        {  423.0f,    0.0f,  247.0f, 0.0f },
+//         {  265.0f,    0.0f,  296.0f, 0.0f },
+//         {  423.0f,  330.0f,  247.0f, 0.0f },
+//         {  423.0f,    0.0f,  247.0f, 0.0f },
 
-        // Ceiling light -- emmissive
-        {  343.0f,  548.6f,  227.0f, 0.0f },
-        {  213.0f,  548.6f,  227.0f, 0.0f },
-        {  213.0f,  548.6f,  332.0f, 0.0f },
+//         // Ceiling light -- emmissive
+//         {  343.0f,  548.6f,  227.0f, 0.0f },
+//         {  213.0f,  548.6f,  227.0f, 0.0f },
+//         {  213.0f,  548.6f,  332.0f, 0.0f },
 
-        {  343.0f,  548.6f,  227.0f, 0.0f },
-        {  213.0f,  548.6f,  332.0f, 0.0f },
-        {  343.0f,  548.6f,  332.0f, 0.0f }
-    } };
+//         {  343.0f,  548.6f,  227.0f, 0.0f },
+//         {  213.0f,  548.6f,  332.0f, 0.0f },
+//         {  343.0f,  548.6f,  332.0f, 0.0f }
+//     } };
 
-static std::array<uint32_t, TRIANGLE_COUNT> g_mat_indices = {{
-    0, 0,                          // Floor         -- white lambert
-    0, 0,                          // Ceiling       -- white lambert
-    0, 0,                          // Back wall     -- white lambert
-    1, 1,                          // Right wall    -- green lambert
-    2, 2,                          // Left wall     -- red lambert
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // Short block   -- white lambert
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // Tall block    -- white lambert
-    3, 3                           // Ceiling light -- emmissive
-}};
+// static std::array<uint32_t, TRIANGLE_COUNT> g_mat_indices = {{
+//     0, 0,                          // Floor         -- white lambert
+//     0, 0,                          // Ceiling       -- white lambert
+//     0, 0,                          // Back wall     -- white lambert
+//     1, 1,                          // Right wall    -- green lambert
+//     2, 2,                          // Left wall     -- red lambert
+//     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // Short block   -- white lambert
+//     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // Tall block    -- white lambert
+//     3, 3                           // Ceiling light -- emmissive
+// }};
 
-const std::array<float3, MAT_COUNT> g_emission_colors =
-    { {
-        {  0.0f,  0.0f,  0.0f },
-        {  0.0f,  0.0f,  0.0f },
-        {  0.0f,  0.0f,  0.0f },
-        { 15.0f, 15.0f,  5.0f }
+// const std::array<float3, MAT_COUNT> g_emission_colors =
+//     { {
+//         {  0.0f,  0.0f,  0.0f },
+//         {  0.0f,  0.0f,  0.0f },
+//         {  0.0f,  0.0f,  0.0f },
+//         { 15.0f, 15.0f,  5.0f }
 
-    } };
+//     } };
 
 
-const std::array<float3, MAT_COUNT> g_diffuse_colors =
-    { {
-        { 0.80f, 0.80f, 0.80f },
-        { 0.05f, 0.80f, 0.05f },
-        { 0.80f, 0.05f, 0.05f },
-        { 0.50f, 0.00f, 0.00f }
-    } };
+// const std::array<float3, MAT_COUNT> g_diffuse_colors =
+//     { {
+//         { 0.80f, 0.80f, 0.80f },
+//         { 0.05f, 0.80f, 0.05f },
+//         { 0.80f, 0.05f, 0.05f },
+//         { 0.50f, 0.00f, 0.00f }
+//     } };
 
 // GLFW callbacks
 static void mouseButtonCallback(GLFWwindow* window, int32_t button, int32_t action, int32_t mods) {
@@ -388,7 +389,7 @@ void displaySubframe(sutil::CUDAOutputBuffer<uchar4>& output_buffer, sutil::GLDi
     );
 }
 
-void initLaunchParams(PathTracerState& state, const TracerSettings& settings) {
+void initLaunchParams(PathTracerState& state, const TracerSettings& settings, SceneConverter& sc) {
     CUDA_CHECK(cudaMalloc(
         reinterpret_cast<void**>(&state.params.accum_buffer),
         state.params.width * state.params.height * sizeof(float4)
@@ -399,27 +400,20 @@ void initLaunchParams(PathTracerState& state, const TracerSettings& settings) {
     state.params.samples_per_launch = settings.samplesPerPixel;
     state.params.subframe_index     = 0u;
 
-    state.params.light.emission = make_float3( 15.0f, 15.0f, 5.0f );
-    state.params.light.corner   = make_float3( 0.23f, 1.98f, 0.16f );
-    state.params.light.v1       = make_float3( 0.0f, 0.0f, 0.16f );
-    state.params.light.v2       = make_float3( -0.24f, 0.0f, 0.0f );
-    state.params.light.normal   = normalize(cross(state.params.light.v1, state.params.light.v2));
-    state.params.handle         = state.gas_handle;
+    state.params.light = sc.light;
+
+    state.params.handle = state.gas_handle;
 
     CUDA_CHECK(cudaStreamCreate(&state.stream));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&state.d_params), sizeof(Params)));
 }
 
-void initCameraState()
-{
-    // camera.setEye( make_float3( 278.0f, 273.0f, -900.0f ) );
-    // camera.setLookat( make_float3( 278.0f, 273.0f, 330.0f ) );
-    // camera.setUp( make_float3( 0.0f, 1.0f, 0.0f ) );
-    // camera.setFovY( 35.0f );
-    camera.setEye( make_float3( 0.0f, 1.0f, 3.6f ) );
-    camera.setLookat( make_float3( 0.0f, 1.0f, 0.0f ) );
-    camera.setUp( make_float3( 0.0f, 1.0f, 0.0f ) );
-    camera.setFovY( 45.0f );
+void initCameraState(SceneConverter& sc) {
+
+    camera.setEye(sc.eye);
+    camera.setLookat(sc.lookat);
+    camera.setUp(sc.up);
+    camera.setFovY(45.0f);
     camera_changed = true;
 
     trackball.setCamera( &camera );
@@ -428,7 +422,7 @@ void initCameraState()
         make_float3( 1.0f, 0.0f, 0.0f ),
         make_float3( 0.0f, 0.0f, 1.0f ),
         make_float3( 0.0f, 1.0f, 0.0f )
-        );
+    );
     trackball.setGimbalLock( true );
 }
 
@@ -455,48 +449,70 @@ void createContext(PathTracerState& state) {
     state.context = context;
 }
 
-void buildMeshAccel(PathTracerState& state) {
+void buildMeshAccel(PathTracerState& state, SceneConverter& sc) {
     OptixAccelBuildOptions accel_options = {};
     accel_options.buildFlags             = OPTIX_BUILD_FLAG_ALLOW_COMPACTION;
     accel_options.operation              = OPTIX_BUILD_OPERATION_BUILD;
 
     // Copy vertex data to device
-    const size_t vertices_size = sizeof(Vertex) * g_vertices.size();
+    const size_t vertices_size = sizeof(Vertex) * sc.vertices.size();
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&state.d_vertices), vertices_size));
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(state.d_vertices),
-        g_vertices.data(),
+        sc.vertices.data(),
         vertices_size,
+        cudaMemcpyHostToDevice
+    ));
+
+    // Copy index data to device
+    const size_t indices_size = sizeof(IndexedTriangle) * sc.indices.size();
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&state.d_indices), indices_size));
+    CUDA_CHECK(cudaMemcpy(
+        reinterpret_cast<void*>(state.d_indices),
+        sc.indices.data(),
+        indices_size,
+        cudaMemcpyHostToDevice
+    ));
+
+    // Normals don't really need to be copied here, but why not...
+    const size_t normals_size = sizeof(float3) * sc.normals.size();
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&state.d_normals), normals_size));
+    CUDA_CHECK(cudaMemcpy(
+        reinterpret_cast<void*>(state.d_normals),
+        sc.normals.data(),
+        normals_size,
         cudaMemcpyHostToDevice
     ));
 
     // Matrix data to device
     CUdeviceptr d_mat_indices = 0;
-    const size_t mat_indices_size_in_bytes = g_mat_indices.size() * sizeof(uint32_t);
+    const size_t mat_indices_size_in_bytes = sc.mat_indices.size() * sizeof(uint32_t);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mat_indices), mat_indices_size_in_bytes));
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_mat_indices),
-        g_mat_indices.data(),
+        sc.mat_indices.data(),
         mat_indices_size_in_bytes,
         cudaMemcpyHostToDevice
     ));
 
     // Build triangle GAS
-    const uint32_t triangle_input_flags[MAT_COUNT] = {
-        OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,
-        OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,
-        OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT,
-        OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT
+    uint32_t triangle_input_flags[sc.mat_count];
+    for (size_t i = 0; i < sc.mat_count; i++) {
+        triangle_input_flags[i] = OPTIX_GEOMETRY_FLAG_DISABLE_ANYHIT;
     };
 
     OptixBuildInput triangle_input = {};
     triangle_input.type                                      = OPTIX_BUILD_INPUT_TYPE_TRIANGLES;
     triangle_input.triangleArray.vertexFormat                = OPTIX_VERTEX_FORMAT_FLOAT3;
     triangle_input.triangleArray.vertexStrideInBytes         = sizeof(Vertex);
-    triangle_input.triangleArray.numVertices                 = static_cast<uint32_t>(g_vertices.size());
+    triangle_input.triangleArray.numVertices                 = uint32_t(sc.vertices.size());
     triangle_input.triangleArray.vertexBuffers               = &state.d_vertices;
+    triangle_input.triangleArray.numIndexTriplets            = uint32_t(sc.indices.size());
+    triangle_input.triangleArray.indexBuffer                 = state.d_indices;
+    triangle_input.triangleArray.indexFormat                 = OPTIX_INDICES_FORMAT_UNSIGNED_INT3;
+    triangle_input.triangleArray.indexStrideInBytes          = sizeof(IndexedTriangle);
     triangle_input.triangleArray.flags                       = triangle_input_flags;
-    triangle_input.triangleArray.numSbtRecords               = MAT_COUNT;
+    triangle_input.triangleArray.numSbtRecords               = sc.mat_count;
     triangle_input.triangleArray.sbtIndexOffsetBuffer        = d_mat_indices;
     triangle_input.triangleArray.sbtIndexOffsetSizeInBytes   = sizeof(uint32_t);
     triangle_input.triangleArray.sbtIndexOffsetStrideInBytes = sizeof(uint32_t);
@@ -706,7 +722,7 @@ void createPipeline(PathTracerState& state) {
     ));
 }
 
-void createSBT(PathTracerState& state) {
+void createSBT(PathTracerState& state, SceneConverter& mc) {
     CUdeviceptr d_raygen_record;
     const size_t raygen_record_size = sizeof(RayGenSbtRecord);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), raygen_record_size));
@@ -732,26 +748,28 @@ void createSBT(PathTracerState& state) {
         cudaMemcpyHostToDevice
     ));
 
+
     CUdeviceptr d_hitgroup_records;
     const size_t hitgroup_record_size = sizeof(HitGroupSbtRecord);
     CUDA_CHECK(cudaMalloc(
         reinterpret_cast<void**>(&d_hitgroup_records),
-        hitgroup_record_size * RAY_TYPE_COUNT * MAT_COUNT
+        hitgroup_record_size * RAY_TYPE_COUNT * mc.mat_count
     ));
 
-    HitGroupSbtRecord hg_sbt_records[RAY_TYPE_COUNT * MAT_COUNT];
-    for (int32_t i = 0; i < MAT_COUNT; i++) {
-        const int32_t sbt_idx = i * RAY_TYPE_COUNT;
+    HitGroupSbtRecord hg_sbt_records[RAY_TYPE_COUNT * mc.mat_count];
+    for (size_t i = 0; i < mc.mat_count; i++) {
+        const size_t sbt_idx = i * RAY_TYPE_COUNT;
         OPTIX_CHECK(optixSbtRecordPackHeader(state.radiance_hit_group, &hg_sbt_records[sbt_idx]));
-        hg_sbt_records[sbt_idx].data.emission_color = g_emission_colors[i];
-        hg_sbt_records[sbt_idx].data.diffuse_color  = g_diffuse_colors[i];
+        hg_sbt_records[sbt_idx].data.emission_color = mc.emission[i];
+        hg_sbt_records[sbt_idx].data.diffuse_color  = mc.diffuse[i];
         hg_sbt_records[sbt_idx].data.vertices       = reinterpret_cast<float4*>(state.d_vertices);
+        hg_sbt_records[sbt_idx].data.normals        = reinterpret_cast<float3*>(state.d_normals);
     }
 
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_hitgroup_records),
         &hg_sbt_records,
-        hitgroup_record_size * RAY_TYPE_COUNT * MAT_COUNT,
+        hitgroup_record_size * RAY_TYPE_COUNT * mc.mat_count,
         cudaMemcpyHostToDevice
     ));
 
@@ -762,7 +780,7 @@ void createSBT(PathTracerState& state) {
     state.sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
 
     state.sbt.hitgroupRecordBase          = d_hitgroup_records;
-    state.sbt.hitgroupRecordCount         = RAY_TYPE_COUNT * MAT_COUNT;
+    state.sbt.hitgroupRecordCount         = RAY_TYPE_COUNT * mc.mat_count;
     state.sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
 }
 
@@ -795,17 +813,19 @@ int32_t runTracer(
     sutil::CUDAOutputBufferType output_buffer_type = sutil::CUDAOutputBufferType::GL_INTEROP;
     // output_buffer_type = sutil::CUDAOutputBufferType::CUDA_DEVICE;
     try {
+        SceneConverter sc(scene);
+
         // Cam
-        initCameraState();
+        initCameraState(sc);
 
         // Optix state
         createContext(state);
-        buildMeshAccel2(reinterpret_cast<PathTracerHackyState*>(&state), scene);
+        buildMeshAccel(state, sc);
         createModule(state);
         createProgramGroups(state);
         createPipeline(state);
-        createSBT(state);
-        initLaunchParams(state, settings);
+        createSBT(state, sc);
+        initLaunchParams(state, settings, sc);
 
         // Launch
         if (data_out == nullptr) {
@@ -886,8 +906,8 @@ int32_t runTracer(
                 buffer.height       = output_buffer.height();
                 buffer.pixel_format = sutil::BufferImageFormat::UNSIGNED_BYTE4;
 
-                // FIXME
-                //sutil::saveImage( outfile.c_str(), buffer, false );
+                //data_out = reinterpret_cast<QRgb*>(output_buffer.getHostPointer());
+                sutil::saveImage("image_out.ppm", buffer, false );
             }
 
             if( output_buffer_type == sutil::CUDAOutputBufferType::GL_INTEROP ) {

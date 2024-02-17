@@ -38,4 +38,6 @@ static QRgb vec3ToQRGB(const Eigen::Vector3f& illum) {
     return qRgb(intvec[0], intvec[1], intvec[2]);
 }
 
+
+
 #endif // UTILS_H

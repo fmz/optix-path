@@ -56,7 +56,7 @@ int main(int argc, char *argv[])
     QRgb *data = reinterpret_cast<QRgb *>(image.bits());
 
     mytimer t;
-    runTracer(tracer_settings, reinterpret_cast<void*>(scene), nullptr);
+    runTracer(tracer_settings, reinterpret_cast<void*>(scene), data);
     t.checkpoint();
 
     std::cout << "Traced paths in " << t.to_string() << std::endl;
