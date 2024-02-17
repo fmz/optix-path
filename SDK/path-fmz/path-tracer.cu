@@ -10,6 +10,64 @@ extern "C" {
 __constant__ Params params;
 
 
+// Quaternion lifted from: https://forums.developer.nvidia.com/t/cuda-for-quaternions-hyper-complex-numbers-operations/44116/2
+// Quaternion helper class describing rotations
+// this allows for a nice description and execution of rotations in 3D space.
+typedef struct _Quaternion {
+    // rotation around a given axis (given sine and cosine of HALF the rotation angle)
+    static __device__ __forceinline__ struct _Quaternion describe_rotation(
+        const float3 v,
+        const float sina_2,
+        const float cosa_2
+    ) {
+        struct _Quaternion result;
+        result.q = make_float4(cosa_2, sina_2*v.x, sina_2*v.y, sina_2*v.z);
+        return result;
+    }
+
+    // rotation around a given axis (angle without range restriction)
+    static __device__ __forceinline__ struct _Quaternion describe_rotation(
+        const float3 v,
+        const float angle
+    ) {
+        float sina_2, cosa_2;
+        __sincosf(angle/2.f, &sina_2, &cosa_2);
+
+        struct _Quaternion result;
+        result.q = make_float4(cosa_2, sina_2*v.x, sina_2*v.y, sina_2*v.z);
+        return result;
+    }
+
+    // rotate a point v in 3D space around the origin using this quaternion
+    // see EN Wikipedia on Quaternions and spatial rotation
+    __device__ __forceinline__ float3 rotate(const float3 v) const {
+        float t2 =   q.x*q.y;
+        float t3 =   q.x*q.z;
+        float t4 =   q.x*q.w;
+        float t5 =  -q.y*q.y;
+        float t6 =   q.y*q.z;
+        float t7 =   q.y*q.w;
+        float t8 =  -q.z*q.z;
+        float t9 =   q.z*q.w;
+        float t10 = -q.w*q.w;
+        return make_float3(
+            2.0f*( (t8 + t10)*v.x + (t6 -  t4)*v.y + (t3 + t7)*v.z ) + v.x,
+            2.0f*( (t4 +  t6)*v.x + (t5 + t10)*v.y + (t9 - t2)*v.z ) + v.y,
+            2.0f*( (t7 -  t3)*v.x + (t2 +  t9)*v.y + (t5 + t8)*v.z ) + v.z
+        );
+    }
+
+    // rotate a point v in 3D space around a given point p using this quaternion
+    __device__ __forceinline__ float3 rotate_around_p(const float3 v, const float3 p) {
+        return p + rotate(v - p);
+    }
+
+protected:
+    // 1,i,j,k
+    float4 q;
+} Quaternion;
+
+
 struct OrthonormalBasis {
     __forceinline__ __device__ OrthonormalBasis(const float3& normal) {
         m_normal = normal;
@@ -93,16 +151,17 @@ static __forceinline__ __device__ void storeMissRadiancePRD(RadiancePRD prd) {
     optixSetPayload_17(prd.done);
 }
 
-static __forceinline__ __device__ void cosine_sample_hemisphere(const float u1, const float u2, float3& p)
-{
+static __forceinline__ __device__ float3 sample_from_hemisphere(
+    const float rnd0, const float rnd1, const OrthonormalBasis& onb
+) {
     // Uniformly sample disk.
-    const float r   = sqrtf( u1 );
-    const float phi = 2.0f*M_PIf * u2;
-    p.x = r * cosf( phi );
-    p.y = r * sinf( phi );
+    const float theta  = rnd0 * M_PI_2f;
+    const float phi    = rnd1 * 2.0f*M_PIf;
 
-    // Project up to hemisphere.
-    p.z = sqrtf( fmaxf( 0.0f, 1.0f - p.x*p.x - p.y*p.y ) );
+    _Quaternion theta_rot = _Quaternion::describe_rotation(onb.m_binormal, theta);
+    _Quaternion phi_rot   = _Quaternion::describe_rotation(onb.m_normal, phi);
+
+    return phi_rot.rotate_around_p(theta_rot.rotate_around_p(onb.m_normal, onb.m_binormal), onb.m_normal);
 }
 
 
@@ -293,7 +352,6 @@ __global__ void __miss__radiance()
 
 static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, int32_t vert_idx) {
     const float3 n1  = normalize(rt_data->normals[vert_idx+0]);
-    // if the
     const float3 n2  = normalize(rt_data->normals[vert_idx+1]);
     const float3 n3  = normalize(rt_data->normals[vert_idx+2]);
 
@@ -318,8 +376,8 @@ __global__ void __closesthit__radiance() {
 
     const float3 n    = getNormal(rt_data, vert_idx_offset);
 
-    const float3 N    = n;//aceforward(n, -ray_dir, n);
-    const float3 P    = optixGetWorldRayOrigin() + optixGetRayTmax()*ray_dir;
+    const float3 N     = faceforward(n, -ray_dir, n);
+    const float3 hit_p = optixGetWorldRayOrigin() + optixGetRayTmax() * ray_dir;
 
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
@@ -334,12 +392,11 @@ __global__ void __closesthit__radiance() {
         const float z1 = rnd(seed);
         const float z2 = rnd(seed);
 
-        float3 w_in;
-        cosine_sample_hemisphere(z1, z2, w_in);
         OrthonormalBasis onb(N);
-        onb.inverse_transform(w_in);
+        float3 w_in = sample_from_hemisphere(z1, z2, onb);
+        // onb.inverse_transform(w_in);
         prd.direction = w_in;
-        prd.origin    = P;
+        prd.origin    = hit_p;
 
         prd.attenuation *= rt_data->diffuse_color;
     }
@@ -352,24 +409,25 @@ __global__ void __closesthit__radiance() {
     const float3 light_pos   = light.corner + light.v1 * z1 + light.v2 * z2;
 
     // Calculate properties of light sample (for area based pdf)
-    const float  Ldist = length(light_pos - P );
-    const float3 L     = normalize(light_pos - P );
-    const float  nDl   = dot( N, L );
-    const float  LnDl  = -dot( light.normal, L );
+    const float  dist_to_light  = length(light_pos - hit_p);
+    const float3 light_dir      = normalize(light_pos - hit_p);
+    const float  norm_dot_light = dot(N, light_dir);
+
+    const float  LnDl  = -dot( light.normal, light_dir );
 
     float weight = 0.0f;
-    if( nDl > 0.0f && LnDl > 0.0f ) {
+    if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
         const bool occluded =
             traceOcclusion(
                 params.handle,
-                P,
-                L,
+                hit_p,
+                light_dir,
                 0.0001f,           // tmin
-                Ldist - 0.0001f);  // tmax
+                dist_to_light - 0.0001f);  // tmax
 
         if( !occluded ) {
             const float A = length(cross(light.v1, light.v2));
-            weight = nDl * LnDl * A / (M_PIf * Ldist * Ldist);
+            weight = norm_dot_light * LnDl * A / ((2*M_PIf) * pow(dist_to_light, 2));
         }
     }
 
