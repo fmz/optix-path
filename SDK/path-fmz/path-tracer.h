@@ -17,7 +17,7 @@ constexpr OptixPayloadTypeID PAYLOAD_TYPE_RADIANCE  = OPTIX_PAYLOAD_TYPE_ID_0;
 
 struct RadiancePRD {
     // these are produced by the caller, passed into trace, consumed/modified by CH and MS and consumed again by the caller after trace returned.
-    float3   attenuation;
+    float3   brdf_prod;
     uint32_t seed;
     int32_t  depth;
 
@@ -26,11 +26,12 @@ struct RadiancePRD {
     float3   radiance;
     float3   origin;
     float3   direction;
+    bool     direct_light_only;
     int32_t  done;
 };
 
 const uint32_t radiancePayloadSemantics[18] = {
-    // RadiancePRD::attenuation
+    // RadiancePRD::brdf_prod
     OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE | OPTIX_PAYLOAD_SEMANTICS_CH_READ_WRITE,
     OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE | OPTIX_PAYLOAD_SEMANTICS_CH_READ_WRITE,
     OPTIX_PAYLOAD_SEMANTICS_TRACE_CALLER_READ_WRITE | OPTIX_PAYLOAD_SEMANTICS_CH_READ_WRITE,
@@ -88,9 +89,23 @@ struct MissData {
     float4 bg_clr;
 };
 
+enum {
+    PHONG_MODEL,
+    MIRROR_MODEL,
+    TRANSP_MODEL
+};
+
+struct MaterialInfo {
+    int32_t model;
+    float3 diffuse_color;
+    float3 emission_color;
+    float3 specular_color;
+    float  specular_n;
+    float  ior;
+};
+
 struct HitGroupData {
-    float3  emission_color;
-    float3  diffuse_color;
     float4* vertices;
     float3* normals;
+    MaterialInfo mat_info;
 };

@@ -551,7 +551,7 @@ void createPipeline(PathTracerState& state) {
     ));
 }
 
-void createSBT(PathTracerState& state, SceneConverter& mc) {
+void createSBT(PathTracerState& state, SceneConverter& sc) {
     CUdeviceptr d_raygen_record;
     const size_t raygen_record_size = sizeof(RayGenSbtRecord);
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_raygen_record), raygen_record_size));
@@ -582,23 +582,22 @@ void createSBT(PathTracerState& state, SceneConverter& mc) {
     const size_t hitgroup_record_size = sizeof(HitGroupSbtRecord);
     CUDA_CHECK(cudaMalloc(
         reinterpret_cast<void**>(&d_hitgroup_records),
-        hitgroup_record_size * RAY_TYPE_COUNT * mc.mat_count
+        hitgroup_record_size * RAY_TYPE_COUNT * sc.mat_count
     ));
 
-    HitGroupSbtRecord hg_sbt_records[RAY_TYPE_COUNT * mc.mat_count];
-    for (size_t i = 0; i < mc.mat_count; i++) {
+    HitGroupSbtRecord hg_sbt_records[RAY_TYPE_COUNT * sc.mat_count];
+    for (size_t i = 0; i < sc.mat_count; i++) {
         const size_t sbt_idx = i * RAY_TYPE_COUNT;
         OPTIX_CHECK(optixSbtRecordPackHeader(state.radiance_hit_group, &hg_sbt_records[sbt_idx]));
-        hg_sbt_records[sbt_idx].data.emission_color = mc.emission[i];
-        hg_sbt_records[sbt_idx].data.diffuse_color  = mc.diffuse[i];
-        hg_sbt_records[sbt_idx].data.vertices       = reinterpret_cast<float4*>(state.d_vertices);
-        hg_sbt_records[sbt_idx].data.normals        = reinterpret_cast<float3*>(state.d_normals);
+        hg_sbt_records[sbt_idx].data.mat_info = sc.mat_info[i];
+        hg_sbt_records[sbt_idx].data.vertices = reinterpret_cast<float4*>(state.d_vertices);
+        hg_sbt_records[sbt_idx].data.normals  = reinterpret_cast<float3*>(state.d_normals);
     }
 
     CUDA_CHECK(cudaMemcpy(
         reinterpret_cast<void*>(d_hitgroup_records),
         &hg_sbt_records,
-        hitgroup_record_size * RAY_TYPE_COUNT * mc.mat_count,
+        hitgroup_record_size * RAY_TYPE_COUNT * sc.mat_count,
         cudaMemcpyHostToDevice
     ));
 
@@ -609,7 +608,7 @@ void createSBT(PathTracerState& state, SceneConverter& mc) {
     state.sbt.missRecordStrideInBytes = sizeof(MissSbtRecord);
 
     state.sbt.hitgroupRecordBase          = d_hitgroup_records;
-    state.sbt.hitgroupRecordCount         = RAY_TYPE_COUNT * mc.mat_count;
+    state.sbt.hitgroupRecordCount         = RAY_TYPE_COUNT * sc.mat_count;
     state.sbt.hitgroupRecordStrideInBytes = sizeof(HitGroupSbtRecord);
 }
 

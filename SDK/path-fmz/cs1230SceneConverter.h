@@ -38,8 +38,7 @@ struct SceneConverter {
     std::vector<IndexedTriangle>  indices;
     std::vector<float3>           normals;
     std::vector<uint32_t>         mat_indices;
-    std::vector<float3>           emission;
-    std::vector<float3>           diffuse;
+    std::vector<MaterialInfo>     mat_info;
 
     size_t mat_count;
     size_t tri_count;

@@ -100,15 +100,21 @@ SceneConverter::SceneConverter(void* scn) {
             float3 a, b;
         };
 
-        auto comp = [](const float6& a, const float6& b) {
-            return a.a.x < b.a.x ||
-                   a.a.y < b.a.y ||
-                   a.a.z < b.a.z ||
-                   a.b.x < b.b.x ||
-                   a.b.y < b.b.y ||
-                   a.b.z < b.b.z;
+        auto comp = [](const MaterialInfo& a, const MaterialInfo& b) {
+            return a.model < b.model ||
+                   a.diffuse_color.x < b.diffuse_color.x ||
+                   a.diffuse_color.y < b.diffuse_color.y ||
+                   a.diffuse_color.z < b.diffuse_color.z ||
+                   a.emission_color.x < b.emission_color.x ||
+                   a.emission_color.y < b.emission_color.y ||
+                   a.emission_color.z < b.emission_color.z ||
+                   a.specular_color.x < b.specular_color.x ||
+                   a.specular_color.y < b.specular_color.y ||
+                   a.specular_color.z < b.specular_color.z ||
+                   a.specular_n < b.specular_n ||
+                   a.ior < b.ior;
         };
-        std::map<float6, uint32_t, decltype(comp)> emiss_to_idx;
+        std::map<MaterialInfo, uint32_t, decltype(comp)> emiss_to_idx;
 
         bool light_found = false;
 
@@ -120,20 +126,32 @@ SceneConverter::SceneConverter(void* scn) {
                 mat.emission[2]
             };
 
-            float3 color = {
+            float3 diffuse = {
                 mat.diffuse[0],
                 mat.diffuse[1],
                 mat.diffuse[2]
             };
 
-            float6 pack{emiss, color};
-            if (emiss_to_idx.count(pack) == 0) {
-                emission.push_back(emiss);
-                diffuse.push_back(color);
-                mat_indices.push_back(emission.size() - 1);
-                emiss_to_idx[pack] = emission.size() - 1;
+            float3 specular = {
+                mat.specular[0],
+                mat.specular[1],
+                mat.specular[2]
+            };
+
+            std::map<int32_t, int32_t> illum_to_model = {{2,0}, {5, 1}, {7, 2}};
+
+            MaterialInfo mi = {illum_to_model[mat.illum],
+                               diffuse,
+                               emiss,
+                               specular,
+                               mat.shininess,
+                               mat.ior};
+            if (emiss_to_idx.count(mi) == 0) {
+                mat_info.push_back(mi);
+                mat_indices.push_back(mat_info.size() - 1);
+                emiss_to_idx[mi] =  mat_info.size() - 1;
             } else {
-                mat_indices.push_back(emiss_to_idx.at(pack));
+                mat_indices.push_back(emiss_to_idx.at(mi));
             }
 
             // Handle the one light when you find it
@@ -155,7 +173,7 @@ SceneConverter::SceneConverter(void* scn) {
         }
     }
 
-    mat_count = diffuse.size();
+    mat_count = mat_info.size();
     tri_count = indices.size();
 
     // Camera
