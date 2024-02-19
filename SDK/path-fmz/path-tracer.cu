@@ -161,7 +161,8 @@ static __forceinline__ __device__ float3 sample_from_hemisphere(
     const float rnd0, const float rnd1, const OrthonormalBasis& onb
 ) {
     // Uniformly sample disk.
-    const float theta  = rnd0 * M_PI_2f;
+    //const float theta  = rnd0 * M_PI_2f;
+    const float theta  = std::asin(1.f - rnd0);
     const float phi    = rnd1 * 2.0f*M_PIf;
 
     _Quaternion theta_rot = _Quaternion::describe_rotation(onb.m_binormal, theta);
@@ -382,7 +383,6 @@ __global__ void __miss__radiance()
     storeMissRadiancePRD(prd);
 }
 
-
 static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, int32_t vert_idx) {
     const float3 n1  = normalize(rt_data->normals[vert_idx+0]);
     const float3 n2  = normalize(rt_data->normals[vert_idx+1]);
@@ -398,8 +398,31 @@ static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, 
     return interpolated_normal;
 }
 
+
+
+// The following functions handle BRDF calculations
+// They come in pairs: 1. next-ray sampler (along with its inverse pdf)
+//                     2. BRDF, based on the ray sampled from 1.
+
+static __forceinline__ __device__ void diffuse_sample_next_ray(
+    const float3 normal,
+    uint32_t& seed,
+    float3& w_in,
+    float&  inv_pdf) {
+    const float z1 = rnd(seed);
+    const float z2 = rnd(seed);
+    OrthonormalBasis onb(normal);
+
+    w_in = sample_from_hemisphere(z1, z2, onb);
+    inv_pdf = 2.f*M_PIf;
+}
+
 static __forceinline__ __device__ float3 diffuse_brdf(const MaterialInfo& mat) {
     return mat.diffuse_color / M_PIf;
+}
+
+static __forceinline__ __device__ std::pair<float3, float> specular_sample_next_ray(const MaterialInfo& mat) {
+
 }
 
 static __forceinline__ __device__ float3 specular_brdf(
@@ -477,52 +500,62 @@ __global__ void __closesthit__radiance() {
     float3 brdf_blend = {0.f,0.f,0.f};
     unsigned int seed = prd.seed;
     {
-        const float z1 = rnd(seed);
-        const float z2 = rnd(seed);
+        float3 w_in;
+        float inv_pdf;
 
-        OrthonormalBasis onb(N);
-        float3 w_in[3];
-        float pdf;
-
-
-        // Specular contribution
-        if (mat.specular_n > 0 && (
-                mat.specular_color.x > 0.f ||
-                mat.specular_color.y > 0.f ||
-                mat.specular_color.z > 0.f)
-        ) {
-            w_in[0] = reflect(ray_dir, N);
-            pdf = 1;
-            // onb.inverse_transform(w_in);
-            brdf_blend = specular_brdf(mat, N, w_in[0], -ray_dir);
+        switch(mat.model) {
+        case PHONG_MODEL:
+        {
+            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
+            brdf_blend += diffuse_brdf(mat);
+            break;
+        }
+        case MIRROR_MODEL:
+            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
+            brdf_blend += diffuse_brdf(mat);
+            break;
+        case TRANSP_MODEL:
+            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
+            brdf_blend += diffuse_brdf(mat);
+            break;
+        default:
+            printf("INVALID MATERIAL MODEL");
+            return;
         }
 
-        // Diffuse contribution
-        w_in[2] = sample_from_hemisphere(z1, z2, onb);
-        pdf = 1.f/(2.f*M_PIf);
-        // onb.inverse_transform(w_in);
+        // // Specular contribution
+        // if (mat.specular_n > 0 && (
+        //         mat.specular_color.x > 0.f ||
+        //         mat.specular_color.y > 0.f ||
+        //         mat.specular_color.z > 0.f)
+        // ) {
+        //     w_in[0] = reflect(ray_dir, N);
+        //     pdf = 1;
+        //     // onb.inverse_transform(w_in);
+        //     brdf_blend = specular_brdf(mat, N, w_in[0], -ray_dir);
+        // }
 
-        // Refractive contribution
-        bool refracted = false;
-        if (mat.ior > 0.f) {
-            if (refract(w_in[1], ray_dir, N, mat.ior)) {
-                refracted = true;
-            }
-        }
+        // // Refractive contribution
+        // bool refracted = false;
+        // if (mat.ior > 0.f) {
+        //     if (refract(w_in[1], ray_dir, N, mat.ior)) {
+        //         refracted = true;
+        //     }
+        // }
 
-        brdf_blend += diffuse_brdf(mat);
+        // brdf_blend += diffuse_brdf(mat);
 
-        int32_t num_rays = 2;
-        if (refracted) {
-            num_rays += 1;
-        }
-        int32_t ray_choice = int32_t(rnd(seed) * num_rays);
-        prd.direction = w_in[ray_choice];
+        // int32_t num_rays = 2;
+        // if (refracted) {
+        //     num_rays += 1;
+        // }
+        // int32_t ray_choice = int32_t(rnd(seed) * num_rays);
+        prd.direction = w_in;
         prd.origin    = hit_p;
         float wi_dot_n = fabsf(dot(prd.direction, N));
 
         // scale by cos_theta and sampling probability.
-        prd.brdf_prod *= brdf_blend * wi_dot_n / (pdf * (1.f/num_rays));
+        prd.brdf_prod *= brdf_blend * wi_dot_n * inv_pdf;
         //brdf_normalization = M_PIf;
     }
 
