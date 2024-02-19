@@ -1,3 +1,4 @@
+#include <cfloat>
 #include <optix.h>
 #include <cuda/helpers.h>
 
@@ -157,12 +158,50 @@ static __forceinline__ __device__ void storeMissRadiancePRD(RadiancePRD prd) {
     optixSetPayload_17(prd.done);
 }
 
-static __forceinline__ __device__ float3 sample_from_hemisphere(
+static __forceinline__ __device__ std::pair<float3, float> sample_from_hemisphere(
+    const float rnd0,
+    const float rnd1,
+    const OrthonormalBasis& onb,
+    float3& dir,
+    float& inv_pdf
+) {
+    // Uniformly sample hemisphere
+    const float theta  = std::acos(rnd0);
+    const float phi    = rnd1 * 2.0f*M_PIf;
+
+    _Quaternion theta_rot = _Quaternion::describe_rotation(onb.m_binormal, theta);
+    _Quaternion phi_rot   = _Quaternion::describe_rotation(onb.m_normal, phi);
+
+    dir = phi_rot.rotate_around_p(
+        theta_rot.rotate_around_p(onb.m_normal, onb.m_binormal), onb.m_normal);
+    inv_pdf = 2.f*M_PIf;
+}
+
+static __forceinline__ __device__ void cosine_sample_from_hemisphere(
+    const float rnd0,
+    const float rnd1,
+    const OrthonormalBasis& onb,
+    float3& dir,
+    float& inv_pdf
+) {
+    // Sample hemisphere with cosine-theta importance
+    const float theta  = std::asin(std::sqrt(rnd0));
+    const float phi    = rnd1 * 2.0f*M_PIf;
+
+    _Quaternion theta_rot = _Quaternion::describe_rotation(onb.m_binormal, theta);
+    _Quaternion phi_rot   = _Quaternion::describe_rotation(onb.m_normal, phi);
+
+    dir = phi_rot.rotate_around_p(
+        theta_rot.rotate_around_p(onb.m_normal, onb.m_binormal), onb.m_normal);
+    inv_pdf = M_PIf / std::cos(theta + FLT_EPSILON);
+}
+
+static __forceinline__ __device__ float3 sample_from_sphere(
     const float rnd0, const float rnd1, const OrthonormalBasis& onb
 ) {
     // Uniformly sample disk.
     //const float theta  = rnd0 * M_PI_2f;
-    const float theta  = std::asin(1.f - rnd0);
+    const float theta  = std::acos(1.f-(rnd0 * 2.f));
     const float phi    = rnd1 * 2.0f*M_PIf;
 
     _Quaternion theta_rot = _Quaternion::describe_rotation(onb.m_binormal, theta);
@@ -329,10 +368,10 @@ __global__ void __raygen__path_tracer() {
                 prd
             );
             result += prd.emitted;
-            const float p = dot(prd.brdf_prod, {0.3f, 0.59f, 0.11f});
+            const float p = dot(prd.brdf_prod, {0.2126f, 0.7152f, 0.0722f});
             const bool done = prd.done || rnd(prd.seed) > p;
 
-            // Russian Roulette
+            //Russian Roulette
             // const float p = rnd(prd.seed);
             // const bool done = prd.done || (p > cont_prob);
             if (done) {
@@ -398,8 +437,6 @@ static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, 
     return interpolated_normal;
 }
 
-
-
 // The following functions handle BRDF calculations
 // They come in pairs: 1. next-ray sampler (along with its inverse pdf)
 //                     2. BRDF, based on the ray sampled from 1.
@@ -408,21 +445,30 @@ static __forceinline__ __device__ void diffuse_sample_next_ray(
     const float3 normal,
     uint32_t& seed,
     float3& w_in,
-    float&  inv_pdf) {
+    float&  inv_pdf
+) {
     const float z1 = rnd(seed);
     const float z2 = rnd(seed);
     OrthonormalBasis onb(normal);
 
-    w_in = sample_from_hemisphere(z1, z2, onb);
-    inv_pdf = 2.f*M_PIf;
+    cosine_sample_from_hemisphere(z1, z2, onb, w_in, inv_pdf);
 }
 
 static __forceinline__ __device__ float3 diffuse_brdf(const MaterialInfo& mat) {
     return mat.diffuse_color / M_PIf;
 }
 
-static __forceinline__ __device__ std::pair<float3, float> specular_sample_next_ray(const MaterialInfo& mat) {
+static __forceinline__ __device__ void specular_sample_next_ray(
+    const float3 normal,
+    uint32_t& seed,
+    float3& w_in,
+    float&  inv_pdf
+) {
+    const float z1 = rnd(seed);
+    const float z2 = rnd(seed);
+    OrthonormalBasis onb(normal);
 
+    sample_from_hemisphere(z1, z2, onb, w_in, inv_pdf);
 }
 
 static __forceinline__ __device__ float3 specular_brdf(
@@ -431,6 +477,38 @@ static __forceinline__ __device__ float3 specular_brdf(
     const float3 w_in,
     const float3 w_out
 ) {
+
+    float3 r = reflect(-w_in, norm);
+    float3 ret = {0.f, 0.f, 0.f};
+    float r_dot_w = dot(r, w_out) - FLT_EPSILON;
+    float n = mat.specular_n;
+    // if (mat.specular_n > 10 && norm.y > 0.9999f) {
+    //     printFloat3(w_in);
+    //     printFloat3(norm);
+    //     printFloat3(w_out);
+    //     printFloat3(r);
+    //     printFloat3(mat.specular_color);
+    //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
+    // }
+    // if (r_dot_w > 0.9f && r_dot_w < 0.95f) {
+    //     // printFloat3(w_in);
+    //     // printFloat3(w_out);
+    //     // printFloat3(r);
+    //     float expon = pow(r_dot_w, n);
+    //     printf("r_dot_w = %f, expon = %f\n", r_dot_w, expon);
+    // }
+    if (r_dot_w > 0.f && n > 0.f) {
+        ret = mat.specular_color * ((n + 2.f) / (2.f*M_PIf)) * pow(r_dot_w, n);
+    }
+    return ret;
+}
+
+static __forceinline__ __device__ float3 mirror_brdf(
+    const MaterialInfo& mat,
+    const float3 norm,
+    const float3 w_in,
+    const float3 w_out
+    ) {
 
     float3 r = reflect(-w_in, norm);
     float3 ret = {0.f, 0.f, 0.f};
@@ -443,11 +521,119 @@ static __forceinline__ __device__ float3 specular_brdf(
     //     printFloat3(mat.specular_color);
     //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
     // }
-    if (r_dot_w > 0.f && mat.specular_n > 0.f) {
-        ret = mat.specular_color * ((mat.specular_n + 2.f) / (2.f*M_PIf)) * pow(r_dot_w, mat.specular_n);
+    if (fabsf(r_dot_w - 1.f) < 5e-6) {
+        ret = mat.specular_color / r_dot_w;
     }
     return ret;
 }
+
+static __forceinline__ __device__ void glass_sample_next_ray(
+    const MaterialInfo& mat,
+    const float3 normal,
+    const float3 w_out,
+    uint32_t& seed,
+    float3& w_in,
+    float&  inv_pdf
+) {
+    const float z1 = rnd(seed);
+    // const float z2 = rnd(seed);
+    // OrthonormalBasis onb(normal);
+
+    float wout_dot_n = dot(w_out, normal);
+    bool reflect_not_refract;
+    bool exiting_ray;
+    if (wout_dot_n > 0.f) {
+        exiting_ray = false;
+        if (z1 > 0.5f) {
+            reflect_not_refract = true;
+        } else {
+            reflect_not_refract = false;
+        }
+    } else {
+        exiting_ray = true;
+        if (z1 > 0.5f) {
+            reflect_not_refract = false;
+        } else {
+            reflect_not_refract = true;
+        }
+    }
+
+    reflect_not_refract = false;
+
+    if (reflect_not_refract) {
+        w_in = reflect(w_out, normal);
+    } else {
+        // Don't trip, w_in is actully the output.
+        float ior = exiting_ray ? (1.f/mat.ior) : mat.ior;
+        refract(w_in, w_out, -normal, ior);
+        // if (fabsf(w_out.y) < 0.000001 ) {
+        //     printFloat3(w_in);
+        //     printFloat3(w_out);
+        // }
+    }
+    inv_pdf = 2.f;
+}
+
+static __forceinline__ __device__ float3 glass_brdf(
+    const MaterialInfo& mat,
+    const float3 norm,
+    const float3 w_in,
+    const float3 w_out
+ ) {
+
+    float3 refl = reflect(-w_in, norm);
+    float3 refr;
+    refract(refr, w_in, -norm, mat.ior);
+
+    if (dot(refr, refr) < 1e-6f) {
+        // FIXME
+        return mat.specular_color;
+
+    }
+
+    // Index of refraction for the incoming ray and for the outgoing ray
+    // Remember, we go from out to in, because graphics is backwards
+    float n_in, n_out;
+    //float norm_dot_wout = dot(norm, w_out);
+    bool back_hit = optixIsBackFaceHit();
+
+    if (back_hit) {
+        n_in  = 1.f;
+        n_out = mat.ior;
+    } else {
+        // W_out outside, w_in is inside
+        n_in  = mat.ior;
+        n_out = 1.f;
+    }
+
+    // Calculate Schlick's approximation
+    float cos_theta_i = dot(w_in, norm);
+    float R0 = pow(n_in - n_out, 2) / (n_in + n_out);
+    float schlick = R0 - (1.f - R0) * pow(1.f - cos_theta_i, 5);
+
+    float3 ret = {0.f, 0.f, 0.f};
+    float refl_dot_w = dot(refl, w_out);
+    if (fabsf(w_out.y) < 0.000001 ) {
+        printFloat3(w_in);
+        printFloat3(norm);
+        printFloat3(w_out);
+        printFloat3(refl);
+        printFloat3(refr);
+    }
+    float3 specular = {0.f, 0.f, 0.f};
+    if (fabsf(refl_dot_w - 1.f) < 1e-6f) {
+        specular = mat.specular_color;
+    }
+
+    float3 refractive = {0.f, 0.f, 0.f};
+    if (fabsf(dot(w_out, refr)) < 1e-6f) {
+        refractive += 1.f - mat.specular_color;
+    }
+
+    ret = schlick * refractive + (1.f - schlick) * specular;
+    return ret;
+}
+
 
 // static __forceinline__ __device__ float3 refractive_brdf(
 //     const MaterialInfo& mat,
@@ -480,7 +666,7 @@ __global__ void __closesthit__radiance() {
     const MaterialInfo& mat = rt_data->mat_info;
 
     const int    prim_idx        = optixGetPrimitiveIndex();
-    const float3 ray_dir         = optixGetWorldRayDirection();
+    const float3 ray_dir         = normalize(optixGetWorldRayDirection());
     const int    vert_idx_offset = prim_idx*3;
 
     const float3 n    = getNormal(rt_data, vert_idx_offset);
@@ -490,11 +676,13 @@ __global__ void __closesthit__radiance() {
 
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    if(prd.depth == 0) {
-        prd.emitted = mat.emission_color;
-    } else {
-        prd.emitted = make_float3( 0.0f );
-    }
+    prd.emitted = mat.emission_color;
+
+    // if(prd.depth == 0) {
+    //     prd.emitted = mat.emission_color;
+    // } else {
+    //     prd.emitted = make_float3( 0.0f );
+    // }
 
     //float brdf_normalization = 1.f;
     float3 brdf_blend = {0.f,0.f,0.f};
@@ -508,16 +696,21 @@ __global__ void __closesthit__radiance() {
         {
             diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
             brdf_blend += diffuse_brdf(mat);
+            if (mat.specular_n > 0.f) {
+                brdf_blend += specular_brdf(mat, N, w_in, -ray_dir);
+            }
             break;
         }
         case MIRROR_MODEL:
-            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
-            brdf_blend += diffuse_brdf(mat);
-            break;
         case TRANSP_MODEL:
-            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
-            brdf_blend += diffuse_brdf(mat);
+            w_in = reflect(ray_dir, N);
+            inv_pdf = 1;
+            brdf_blend += /*diffuse_brdf(mat) +*/ mirror_brdf(mat, N, w_in, -ray_dir);
             break;
+        // case TRANSP_MODEL:
+        //     glass_sample_next_ray(mat, N, ray_dir, seed, w_in, inv_pdf);
+        //     brdf_blend += glass_brdf(mat, N, w_in, -ray_dir);
+        //     break;
         default:
             printf("INVALID MATERIAL MODEL");
             return;
@@ -552,7 +745,7 @@ __global__ void __closesthit__radiance() {
         // int32_t ray_choice = int32_t(rnd(seed) * num_rays);
         prd.direction = w_in;
         prd.origin    = hit_p;
-        float wi_dot_n = fabsf(dot(prd.direction, N));
+        float wi_dot_n = fabsf(dot(w_in, N));
 
         // scale by cos_theta and sampling probability.
         prd.brdf_prod *= brdf_blend * wi_dot_n * inv_pdf;
@@ -585,13 +778,13 @@ __global__ void __closesthit__radiance() {
 
         if(!occluded) {
             const float A = length(cross(light.v1, light.v2));
-            prd.radiance = light.emission * (norm_dot_light *  A);
+            prd.radiance = brdf_blend * light.emission * (norm_dot_light * A);
         }
     }
 
-    prd.done     = false;
+    prd.done = false;
 
-    storeClosesthitRadiancePRD( prd );
+    storeClosesthitRadiancePRD(prd);
 }
 // __global__ void __miss__test_shader() {
 //     MissData* miss_data = reinterpret_cast<MissData*>(optixGetSbtDataPointer());
