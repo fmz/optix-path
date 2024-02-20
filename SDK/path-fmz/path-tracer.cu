@@ -16,6 +16,7 @@ static __forceinline__ __device__ void _printFloat3(float3 vec, const char* name
 
 #define printFloat3(x) _printFloat3((x), (#x))
 
+static constexpr float3 zerof3 = {0.f, 0.f, 0.f};
 
 // Quaternion lifted from: https://forums.developer.nvidia.com/t/cuda-for-quaternions-hyper-complex-numbers-operations/44116/2
 // Quaternion helper class describing rotations
@@ -105,12 +106,8 @@ struct OrthonormalBasis {
 static __forceinline__ __device__ RadiancePRD loadClosesthitRadiancePRD()
 {
     RadiancePRD prd = {};
-
-    prd.brdf_prod.x = __uint_as_float(optixGetPayload_0());
-    prd.brdf_prod.y = __uint_as_float(optixGetPayload_1());
-    prd.brdf_prod.z = __uint_as_float(optixGetPayload_2());
-    prd.seed  = optixGetPayload_3();
-    prd.depth = optixGetPayload_4();
+    prd.seed  = optixGetPayload_6();
+    prd.depth = optixGetPayload_7();
     return prd;
 }
 
@@ -120,42 +117,55 @@ static __forceinline__ __device__ RadiancePRD loadMissRadiancePRD() {
 }
 
 static __forceinline__ __device__ void storeClosesthitRadiancePRD(RadiancePRD prd) {
-    optixSetPayload_0(__float_as_uint(prd.brdf_prod.x));
-    optixSetPayload_1(__float_as_uint(prd.brdf_prod.y));
-    optixSetPayload_2(__float_as_uint(prd.brdf_prod.z));
+    optixSetPayload_0(__float_as_uint(prd.cur_brdf.x));
+    optixSetPayload_1(__float_as_uint(prd.cur_brdf.y));
+    optixSetPayload_2(__float_as_uint(prd.cur_brdf.z));
+    optixSetPayload_3(__float_as_uint(prd.next_ray_prod.x));
+    optixSetPayload_4(__float_as_uint(prd.next_ray_prod.y));
+    optixSetPayload_5(__float_as_uint(prd.next_ray_prod.z));
 
-    optixSetPayload_3(prd.seed);
-    optixSetPayload_4(prd.depth);
+    optixSetPayload_6(prd.seed);
+    optixSetPayload_7(prd.depth);
 
-    optixSetPayload_5(__float_as_uint(prd.emitted.x));
-    optixSetPayload_6(__float_as_uint(prd.emitted.y));
-    optixSetPayload_7(__float_as_uint(prd.emitted.z));
+    optixSetPayload_8(__float_as_uint(prd.emitted.x));
+    optixSetPayload_9(__float_as_uint(prd.emitted.y));
+    optixSetPayload_10(__float_as_uint(prd.emitted.z));
 
-    optixSetPayload_8(__float_as_uint(prd.radiance.x));
-    optixSetPayload_9(__float_as_uint(prd.radiance.y));
-    optixSetPayload_10(__float_as_uint(prd.radiance.z));
+    optixSetPayload_11(__float_as_uint(prd.radiance.x));
+    optixSetPayload_12(__float_as_uint(prd.radiance.y));
+    optixSetPayload_13(__float_as_uint(prd.radiance.z));
 
-    optixSetPayload_11(__float_as_uint(prd.origin.x));
-    optixSetPayload_12(__float_as_uint(prd.origin.y));
-    optixSetPayload_13(__float_as_uint(prd.origin.z));
+    optixSetPayload_14(__float_as_uint(prd.origin.x));
+    optixSetPayload_15(__float_as_uint(prd.origin.y));
+    optixSetPayload_16(__float_as_uint(prd.origin.z));
 
-    optixSetPayload_14(__float_as_uint(prd.direction.x));
-    optixSetPayload_15(__float_as_uint(prd.direction.y));
-    optixSetPayload_16(__float_as_uint(prd.direction.z));
+    optixSetPayload_17(__float_as_uint(prd.direction.x));
+    optixSetPayload_18(__float_as_uint(prd.direction.y));
+    optixSetPayload_19(__float_as_uint(prd.direction.z));
 
-    optixSetPayload_17(prd.done);
+    optixSetPayload_20(prd.direct_light_only);
+
+    optixSetPayload_21(prd.done);
 }
 
 static __forceinline__ __device__ void storeMissRadiancePRD(RadiancePRD prd) {
-    optixSetPayload_5(__float_as_uint(prd.emitted.x));
-    optixSetPayload_6(__float_as_uint(prd.emitted.y));
-    optixSetPayload_7(__float_as_uint(prd.emitted.z));
+    optixSetPayload_0(__float_as_uint(prd.cur_brdf.x));
+    optixSetPayload_1(__float_as_uint(prd.cur_brdf.y));
+    optixSetPayload_2(__float_as_uint(prd.cur_brdf.z));
 
-    optixSetPayload_8(__float_as_uint(prd.radiance.x));
-    optixSetPayload_9(__float_as_uint(prd.radiance.y));
-    optixSetPayload_10(__float_as_uint(prd.radiance.z));
+    optixSetPayload_3(__float_as_uint(prd.next_ray_prod.x));
+    optixSetPayload_4(__float_as_uint(prd.next_ray_prod.y));
+    optixSetPayload_5(__float_as_uint(prd.next_ray_prod.z));
 
-    optixSetPayload_17(prd.done);
+    optixSetPayload_8(__float_as_uint(prd.emitted.x));
+    optixSetPayload_9(__float_as_uint(prd.emitted.y));
+    optixSetPayload_10(__float_as_uint(prd.emitted.z));
+
+    optixSetPayload_11(__float_as_uint(prd.radiance.x));
+    optixSetPayload_12(__float_as_uint(prd.radiance.y));
+    optixSetPayload_13(__float_as_uint(prd.radiance.z));
+
+    optixSetPayload_21(prd.done);
 }
 
 static __forceinline__ __device__ std::pair<float3, float> sample_from_hemisphere(
@@ -239,13 +249,10 @@ static __forceinline__ __device__ void traceRadiance(
     float                  tmax,
     RadiancePRD&           prd
 ) {
-    unsigned int u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17;
+    unsigned int u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17, u18, u19, u20, u21;
 
-    u0 = __float_as_uint(prd.brdf_prod.x);
-    u1 = __float_as_uint(prd.brdf_prod.y);
-    u2 = __float_as_uint(prd.brdf_prod.z);
-    u3 = prd.seed;
-    u4 = prd.depth;
+    u6 = prd.seed;
+    u7 = prd.depth;
 
     optixTraverse(
         PAYLOAD_TYPE_RADIANCE,
@@ -260,22 +267,24 @@ static __forceinline__ __device__ void traceRadiance(
         0,                        // SBT offset
         RAY_TYPE_COUNT,           // SBT stride
         0,                        // missSBTIndex
-        u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17
+        u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17, u18, u19, u20, u21
     );
 
     optixInvoke(PAYLOAD_TYPE_RADIANCE,
-        u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17
+        u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17, u18, u19, u20, u21
     );
 
-    prd.brdf_prod = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
-    prd.seed  = u3;
-    prd.depth = u4;
+    prd.cur_brdf      = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
+    prd.next_ray_prod = make_float3(__uint_as_float(u3), __uint_as_float(u4), __uint_as_float(u5));
+    prd.seed  = u6;
+    prd.depth = u7;
 
-    prd.emitted   = make_float3(__uint_as_float(u5),  __uint_as_float(u6),  __uint_as_float(u7));
-    prd.radiance  = make_float3(__uint_as_float(u8),  __uint_as_float(u9),  __uint_as_float(u10));
-    prd.origin    = make_float3(__uint_as_float(u11), __uint_as_float(u12), __uint_as_float(u13));
-    prd.direction = make_float3(__uint_as_float(u14), __uint_as_float(u15), __uint_as_float(u16));
-    prd.done      = u17;
+    prd.emitted   = make_float3(__uint_as_float(u8),  __uint_as_float(u9),  __uint_as_float(u10));
+    prd.radiance  = make_float3(__uint_as_float(u11),  __uint_as_float(u12),  __uint_as_float(u13));
+    prd.origin    = make_float3(__uint_as_float(u14), __uint_as_float(u15), __uint_as_float(u16));
+    prd.direction = make_float3(__uint_as_float(u17), __uint_as_float(u18), __uint_as_float(u19));
+    prd.direct_light_only = u20;
+    prd.done      = u21;
 }
 
 // Returns true if ray is occluded, else false
@@ -337,7 +346,7 @@ __global__ void __raygen__path_tracer() {
     // TODO: use a better RNG
     uint32_t seed = tea<4>(idx.y*w + idx.x, subframe_idx);
 
-    float3 result = {0.f, 0.f, 0.f};
+    float3 result = zerof3;
     int32_t spl = params.samples_per_launch;
     for (int32_t i = 0; i < spl; i++) {
         // Map thread id to screen coords, and shoot a ray out (in world coords)
@@ -353,12 +362,38 @@ __global__ void __raygen__path_tracer() {
         float3 ray_d = normalize(dir.x * U + dir.y * V + W);
 
         RadiancePRD prd;
-        prd.brdf_prod = {1.f, 1.f, 1.f};
-        prd.seed        = seed;
-        prd.depth       = 0;
+        prd.cur_brdf      = zerof3;
+        prd.next_ray_prod = zerof3;
+        prd.seed       = seed;
+        prd.depth      = 0;
 
-        while (true) {
-            // Trace ray!
+        // Primary visibility;
+        traceRadiance(
+            params.handle,
+            ray_o,
+            ray_d,
+            0.0001f,  // tmin
+            1e16f,  // tmax
+            prd
+        );
+
+        float3 prod_brdf    = prd.cur_brdf;
+        float next_ray_prod = prd.next_ray_prod.x;
+
+        float3 direct = prd.emitted;
+
+        float p = rnd(prd.seed);
+        bool done = prd.done || (p > cont_prob);
+
+        direct /= cont_prob;
+
+        ray_o = prd.origin;
+        ray_d = prd.direction;
+
+        float3 indirect = zerof3;
+
+        prd.depth++;
+        while (!done) {
             traceRadiance(
                 params.handle,
                 ray_o,
@@ -367,18 +402,21 @@ __global__ void __raygen__path_tracer() {
                 1e16f,  // tmax
                 prd
             );
-            result += prd.emitted;
-            const float p = dot(prd.brdf_prod, {0.2126f, 0.7152f, 0.0722f});
-            const bool done = prd.done || rnd(prd.seed) > p;
 
-            //Russian Roulette
-            // const float p = rnd(prd.seed);
-            // const bool done = prd.done || (p > cont_prob);
+            p = dot(prod_brdf * next_ray_prod * prd.next_ray_prod * prd.cur_brdf, {0.2126f, 0.7152f, 0.0722f});
+            done = prd.done || rnd(prd.seed) > p;
+
+            // Russian Roulette
+            // p = rnd(prd.seed);
+            // done = prd.done || (p > cont_prob);
             if (done) {
                 break;
             }
-            prd.brdf_prod /= p;
-            result += prd.radiance * prd.brdf_prod;
+
+            float3 cur_rad = prd.radiance + prd.emitted;
+            indirect = indirect + (cur_rad * prod_brdf * next_ray_prod);
+            next_ray_prod *= prd.next_ray_prod.x / p;
+            prod_brdf *= prd.cur_brdf;
 
             // prd.brdf_prod /= p;
 
@@ -387,6 +425,7 @@ __global__ void __raygen__path_tracer() {
 
             prd.depth++;
         }
+        result += direct + indirect;
     }
 
     const uint32_t image_idx    = idx.y * w + idx.x;
@@ -673,6 +712,7 @@ __global__ void __closesthit__radiance() {
 
     const float3 N     = faceforward(n, -ray_dir, n);
     const float3 hit_p = optixGetWorldRayOrigin() + optixGetRayTmax() * ray_dir;
+    bool do_direct_light = true;
 
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
@@ -685,7 +725,7 @@ __global__ void __closesthit__radiance() {
     // }
 
     //float brdf_normalization = 1.f;
-    float3 brdf_blend = {0.f,0.f,0.f};
+    float3 brdf_blend = zerof3;
     unsigned int seed = prd.seed;
     {
         float3 w_in;
@@ -695,7 +735,7 @@ __global__ void __closesthit__radiance() {
         case PHONG_MODEL:
         {
             diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
-            brdf_blend += diffuse_brdf(mat);
+            //brdf_blend += diffuse_brdf(mat);
             if (mat.specular_n > 0.f) {
                 brdf_blend += specular_brdf(mat, N, w_in, -ray_dir);
             }
@@ -706,6 +746,7 @@ __global__ void __closesthit__radiance() {
             w_in = reflect(ray_dir, N);
             inv_pdf = 1;
             brdf_blend += /*diffuse_brdf(mat) +*/ mirror_brdf(mat, N, w_in, -ray_dir);
+            do_direct_light = false; // sampled light is already direct
             break;
         // case TRANSP_MODEL:
         //     glass_sample_next_ray(mat, N, ray_dir, seed, w_in, inv_pdf);
@@ -748,41 +789,45 @@ __global__ void __closesthit__radiance() {
         float wi_dot_n = fabsf(dot(w_in, N));
 
         // scale by cos_theta and sampling probability.
-        prd.brdf_prod *= brdf_blend * wi_dot_n * inv_pdf;
+        prd.cur_brdf = brdf_blend;
+        prd.next_ray_prod.x = wi_dot_n * inv_pdf;
         //brdf_normalization = M_PIf;
     }
 
-    const float z1 = rnd(seed);
-    const float z2 = rnd(seed);
-    prd.seed = seed;
+    prd.direct_light_only = do_direct_light;
+    prd.done = false;
 
-    ParallelogramLight light = params.light;
-    const float3 light_pos   = light.corner + light.v1 * z1 + light.v2 * z2;
+    if (do_direct_light) {
+        const float z1 = rnd(seed);
+        const float z2 = rnd(seed);
+        prd.seed = seed;
 
-    // Calculate properties of light sample (for area based pdf)
-    const float  dist_to_light  = length(light_pos - hit_p);
-    const float3 light_dir      = normalize(light_pos - hit_p);
-    const float  norm_dot_light = dot(N, light_dir);
+        ParallelogramLight light = params.light;
+        const float3 light_pos   = light.corner + light.v1 * z1 + light.v2 * z2;
 
-    const float  LnDl  = -dot( light.normal, light_dir );
+        // Calculate properties of light sample (for area based pdf)
+        const float  dist_to_light  = length(light_pos - hit_p);
+        const float3 light_dir      = normalize(light_pos - hit_p);
+        const float  norm_dot_light = dot(N, light_dir);
 
-    // Direct light
-    if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
-        const bool occluded =
-            traceOcclusion(
-                params.handle,
-                hit_p,
-                light_dir,
-                0.0001f,         // tmin
-                dist_to_light);  // tmax
+        const float  LnDl  = -dot(light.normal, light_dir);
 
-        if(!occluded) {
-            const float A = length(cross(light.v1, light.v2));
-            prd.radiance = brdf_blend * light.emission * (norm_dot_light * A);
+        // Direct light
+        if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
+            const bool occluded =
+                traceOcclusion(
+                    params.handle,
+                    hit_p,
+                    light_dir,
+                    0.0001f,         // tmin
+                    dist_to_light);  // tmax
+
+            if(!occluded) {
+                const float A = length(cross(light.v1, light.v2));
+                prd.radiance = light.emission * (norm_dot_light * LnDl* A) / (M_PIf * dist_to_light * dist_to_light);
+            }
         }
     }
-
-    prd.done = false;
 
     storeClosesthitRadiancePRD(prd);
 }
