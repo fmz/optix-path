@@ -572,8 +572,7 @@ static __forceinline__ __device__ float3 mirror_brdf(
     const float3 norm,
     const float3 w_in,
     const float3 w_out
-    ) {
-
+) {
     float3 r = reflect(-w_in, norm);
     float3 ret = {0.f, 0.f, 0.f};
     float r_dot_w = dot(r, w_out);
@@ -585,15 +584,13 @@ static __forceinline__ __device__ float3 mirror_brdf(
     //     printFloat3(mat.specular_color);
     //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
     // }
-    //if (fabsf(r_dot_w - 1.f) < 5e-6) {
-        ret = mat.specular_color / r_dot_w;
-    //}
+    ret = mat.specular_color;
     return ret;
 }
 
 static __forceinline__ __device__ void glass_sample_next_ray(
     const MaterialInfo& mat,
-    const float3 normal,
+    float3 normal,
     const float3 w_out,
     uint32_t& seed,
     float3& w_in,
@@ -603,124 +600,46 @@ static __forceinline__ __device__ void glass_sample_next_ray(
     // const float z2 = rnd(seed);
     // OrthonormalBasis onb(normal);
 
-    float wout_dot_n = dot(w_out, normal);
-    bool reflect_not_refract;
-    bool exiting_ray;
-    if (wout_dot_n > 0.f) {
-        exiting_ray = false;
-        if (z1 > 0.5f) {
-            reflect_not_refract = true;
-        } else {
-            reflect_not_refract = false;
-        }
-    } else {
-        exiting_ray = true;
-        if (z1 > 0.5f) {
-            reflect_not_refract = false;
-        } else {
-            reflect_not_refract = true;
-        }
-    }
-
-    reflect_not_refract = false;
-
-    if (reflect_not_refract) {
-        w_in = reflect(w_out, normal);
-    } else {
-        // Don't trip, w_in is actully the output.
-        float ior = exiting_ray ? (1.f/mat.ior) : mat.ior;
-        refract(w_in, w_out, -normal, ior);
-        // if (fabsf(w_out.y) < 0.000001 ) {
-        //     printFloat3(w_in);
-        //     printFloat3(w_out);
-        // }
-    }
-    inv_pdf = 2.f;
-}
-
-static __forceinline__ __device__ float3 glass_brdf(
-    const MaterialInfo& mat,
-    const float3 norm,
-    const float3 w_in,
-    const float3 w_out
- ) {
-
-    float3 refl = reflect(-w_in, norm);
-    float3 refr;
-    refract(refr, w_in, -norm, mat.ior);
-
-    if (dot(refr, refr) < 1e-6f) {
-        // FIXME
-        return mat.specular_color;
-
-    }
-
     // Index of refraction for the incoming ray and for the outgoing ray
-    // Remember, we go from out to in, because graphics is backwards
-    float n_in, n_out;
+    // For Schlick's approx, _i refers to the incident angle (not to be confused with incoming light)
+    float n_i, n_t;
     //float norm_dot_wout = dot(norm, w_out);
     bool back_hit = optixIsBackFaceHit();
 
     if (back_hit) {
-        n_in  = 1.f;
-        n_out = mat.ior;
+        n_t = 1.f;
+        n_i = mat.ior;
     } else {
-        // W_out outside, w_in is inside
-        n_in  = mat.ior;
-        n_out = 1.f;
+        n_t = mat.ior;
+        n_i = 1.f;
     }
 
     // Calculate Schlick's approximation
-    float cos_theta_i = dot(w_in, norm);
-    float R0 = pow(n_in - n_out, 2) / (n_in + n_out);
-    float schlick = R0 - (1.f - R0) * pow(1.f - cos_theta_i, 5);
+    float cos_theta = dot(-w_out, normal);
+    float R0 = pow((n_i - n_t) / (n_i + n_t), 2);
+    float schlick = R0 + (1.f - R0) * pow(/*1.f - */cos_theta, 5);
 
-    float3 ret = {0.f, 0.f, 0.f};
-    float refl_dot_w = dot(refl, w_out);
-    if (fabsf(w_out.y) < 0.000001 ) {
-        printFloat3(w_in);
-        printFloat3(norm);
-        printFloat3(w_out);
-        printFloat3(refl);
-        printFloat3(refr);
-    }
-    float3 specular = {0.f, 0.f, 0.f};
-    if (fabsf(refl_dot_w - 1.f) < 1e-6f) {
-        specular = mat.specular_color;
-    }
+    // if (schlick > 1.f || schlick < 0) {
+    //     printFloat3(w_out);
+    //     printFloat3(normal);
+    //     printf("schlick = %f, R0 = %f, %f\n", schlick, R0, cos_theta );
+    // }
+    inv_pdf = 1.f;
 
-    float3 refractive = {0.f, 0.f, 0.f};
-    if (fabsf(dot(w_out, refr)) < 1e-6f) {
-        refractive += 1.f - mat.specular_color;
-    }
+    if (z1 > schlick) {
+        w_in = reflect(w_out, normal);
+        inv_pdf = 1.f/(1.f-schlick);
+    } else {
+        float ior = back_hit ? (1.f/mat.ior) : mat.ior;
+        refract(w_in, w_out, normal, ior);
 
-    ret = schlick * refractive + (1.f - schlick) * specular;
-    return ret;
+        // if (dot(w_in, w_in) == 0.f) {
+        //     // Total internal reflection
+        //     w_in = reflect(w_out, normal);
+        // }
+        inv_pdf = 1.f / schlick;
+    }
 }
-
-// static __forceinline__ __device__ float3 refractive_brdf(
-//     const MaterialInfo& mat,
-//     const float3 norm,
-//     const float3 w_in,
-//     const float3 w_out
-//     ) {
-
-//     float3 r = reflect(-w_in, norm);
-//     float3 ret = {0.f, 0.f, 0.f};
-//     float r_dot_w = dot(r, w_out);
-//     // if (mat.specular_n > 100 && norm.y > 0.9999f) {
-//     //     printFloat3(w_in);
-//     //     printFloat3(norm);
-//     //     printFloat3(w_out);
-//     //     printFloat3(r);
-//     //     printFloat3(mat.specular_color);
-//     //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
-//     // }
-//     if (r_dot_w > 0.f && mat.specular_n > 0.f) {
-//         ret = mat.specular_color * ((mat.specular_n + 2.f) / (2.f*M_PIf)) * pow(r_dot_w, mat.specular_n);
-//     }
-//     return ret;
-// }
 
 __global__ void __closesthit__radiance() {
     optixSetPayloadTypes(PAYLOAD_TYPE_RADIANCE);
@@ -738,7 +657,7 @@ __global__ void __closesthit__radiance() {
     const float3 hit_p = optixGetWorldRayOrigin() + optixGetRayTmax() * ray_dir;
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    bool count_emitted = prd.depth == 0 || prd.direct_light_only;  // TODO: rename
+    bool count_emitted = prd.depth == 0 || !prd.direct_light_only;  // TODO: rename
 
     if(count_emitted) {
         prd.emitted = mat.emission_color;
@@ -752,6 +671,7 @@ __global__ void __closesthit__radiance() {
     {
         float3 w_in;
         float inv_pdf;
+        float wi_dot_n;
 
         switch(mat.model) {
         case PHONG_MODEL:
@@ -764,23 +684,32 @@ __global__ void __closesthit__radiance() {
                 diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
                 brdf_blend = diffuse_brdf(mat);
             }
+            wi_dot_n = dot(w_in, n);
+            count_emitted = true;
+
             break;
         }
         case MIRROR_MODEL:
             w_in = reflect(ray_dir, N);
             inv_pdf = 1;
-            brdf_blend += /*diffuse_brdf(mat) +*/ mirror_brdf(mat, N, w_in, -ray_dir);
+            brdf_blend = mat.specular_color;//mirror_brdf(mat, N, w_in, -ray_dir);
             count_emitted = false; // sampled light is already direct
+            wi_dot_n = 1;
+
             break;
-        // case TRANSP_MODEL:
-        //     glass_sample_next_ray(mat, N, ray_dir, seed, w_in, inv_pdf);
-        //     brdf_blend += glass_brdf(mat, N, w_in, -ray_dir);
-        //     break;
+        case TRANSP_MODEL:
+            glass_sample_next_ray(mat, N, ray_dir, seed, w_in, inv_pdf);
+            brdf_blend = {1.f, 1.f, 1.f};
+            count_emitted = false;
+            wi_dot_n = 1;
+
+            break;
         default:
             printf("INVALID MATERIAL MODEL");
             return;
         }
-    case TRANSP_MODEL:
+        prd.next_ray_prod.x = wi_dot_n * inv_pdf;
+
 
         // // Specular contribution
         // if (mat.specular_n > 0 && (
@@ -811,13 +740,9 @@ __global__ void __closesthit__radiance() {
         // int32_t ray_choice = int32_t(rnd(seed) * num_rays);
         prd.direction = w_in;
         prd.origin    = hit_p;
-        float wi_dot_n = dot(w_in, n);
 
         // scale by cos_theta and sampling probability.
         prd.cur_brdf = brdf_blend;  // costheta
-        prd.next_ray_prod.x = wi_dot_n * inv_pdf;
-
-        //brdf_normalization = M_PIf;
     }
 
     const float z1 = rnd(seed);
@@ -834,27 +759,29 @@ __global__ void __closesthit__radiance() {
     const float  LnDl  = -dot(light.normal, light_dir);
 
     // Direct light
-    if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
-        const bool occluded =
-            traceOcclusion(
-                params.handle,
-                hit_p,
-                light_dir,
-                0.0001f,         // tmin
-                dist_to_light);  // tmax
+    if (count_emitted) {
+        if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
+            const bool occluded =
+                traceOcclusion(
+                    params.handle,
+                    hit_p,
+                    light_dir,
+                    0.0001f,         // tmin
+                    dist_to_light);  // tmax
 
-        if(!occluded) {
-            const float A = length(cross(light.v1, light.v2));            
-            float3 dl_brdf = zerof3;
-            // Calculate BRDF for the direct light direction. Only for Phong materials
-            // TODO: refactor
-            if (mat.specular_n > 0.f && (mat.specular_color.x > 0.f || mat.specular_color.y > 0.f || mat.specular_color.z > 0.f)) {
-                dl_brdf = specular_brdf(mat, n, light_dir, -ray_dir);
-                // prd.emitted = mat.emission_color;
-            } else {
-                dl_brdf = diffuse_brdf(mat);
+            if(!occluded) {
+                const float A = length(cross(light.v1, light.v2));
+                float3 dl_brdf = zerof3;
+                // Calculate BRDF for the direct light direction. Only for Phong materials
+                // TODO: refactor
+                if (mat.specular_n > 0.f && (mat.specular_color.x > 0.f || mat.specular_color.y > 0.f || mat.specular_color.z > 0.f)) {
+                    dl_brdf = specular_brdf(mat, n, light_dir, -ray_dir);
+                    // prd.emitted = mat.emission_color;
+                } else {
+                    dl_brdf = diffuse_brdf(mat);
+                }
+                prd.radiance = dl_brdf * light.emission * (norm_dot_light * LnDl* A) / (M_PIf * dist_to_light * dist_to_light);
             }
-            prd.radiance = dl_brdf * light.emission * (norm_dot_light * LnDl* A) / (M_PIf * dist_to_light * dist_to_light);
         }
     }
 
