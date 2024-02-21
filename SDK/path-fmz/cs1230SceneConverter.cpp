@@ -164,9 +164,9 @@ SceneConverter::SceneConverter(void* scn) {
 
                 light.emission = emiss;
                 light.corner = eigen_to_vec_f(v0);
-                light.v1     = eigen_to_vec_f(v1-v0);
-                light.v2     = eigen_to_vec_f(v2-v0);
-                light.normal = getNormalFromVertices(v0, v1, v2);
+                light.v1     = eigen_to_vec_f(v2-v1);
+                light.v2     = eigen_to_vec_f(v0-v1);
+                light.normal = getNormalFromVertices(v1, v2, v0);
 
                 light_found = true;
             }

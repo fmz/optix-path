@@ -78,18 +78,36 @@ protected:
 
 struct OrthonormalBasis {
     __forceinline__ __device__ OrthonormalBasis(const float3& normal) {
+        // m_normal = normal;
+
+        // float x = normal.x, y = normal.y, z = normal.z;
+
+        // // Lifted from pbrt
+        // float sign = z >= 0.f ? 1.f : -1.f;
+        // float a = -1.f / (sign + z);
+        // float b = x * y * a;
+
+        // m_binormal = {b, sign + y*y, -y};
+        // m_binormal = normalize(m_binormal);
+        // m_tangent  = cross(m_binormal, m_normal);
         m_normal = normal;
 
-        float x = normal.x, y = normal.y, z = normal.z;
+        if(fabs(m_normal.x) > fabs(m_normal.z))
+        {
+            m_binormal.x = -m_normal.y;
+            m_binormal.y =  m_normal.x;
+            m_binormal.z =  0;
+        }
+        else
+        {
+            m_binormal.x =  0;
+            m_binormal.y = -m_normal.z;
+            m_binormal.z =  m_normal.y;
+        }
 
-        // Lifted from pbrt
-        float sign = z >= 0.f ? 1.f : -1.f;
-        float a = -1.f / (sign + z);
-        float b = x * y * a;
-
-        m_binormal = {b, sign + y*y, -y};
         m_binormal = normalize(m_binormal);
         m_tangent  = cross(m_binormal, m_normal);
+
     }
 
     __forceinline__ __device__ void inverse_transform(float3& p) const {
@@ -203,7 +221,7 @@ static __forceinline__ __device__ void cosine_sample_from_hemisphere(
 
     dir = phi_rot.rotate_around_p(
         theta_rot.rotate_around_p(onb.m_normal, onb.m_binormal), onb.m_normal);
-    inv_pdf = M_PIf / std::cos(theta + FLT_EPSILON);
+    inv_pdf = M_PIf / std::cos(theta + 0.0001);
 }
 
 static __forceinline__ __device__ float3 sample_from_sphere(
@@ -337,7 +355,9 @@ __global__ void __raygen__path_tracer() {
     const float3  U   = params.cam_u;
     const float3  V   = params.cam_v;
     const float3  W   = params.cam_w;
-    const float cont_prob = params.continuation_prob;
+    const float cont_prob     = params.continuation_prob;
+    const float inv_cont_prob = 1.f / cont_prob;
+
 
     const uint3   idx          = optixGetLaunchIndex();
     const int32_t subframe_idx = params.subframe_index;
@@ -380,12 +400,12 @@ __global__ void __raygen__path_tracer() {
         float3 prod_brdf    = prd.cur_brdf;
         float next_ray_prod = prd.next_ray_prod.x;
 
-        float3 direct = prd.emitted;
+        float3 direct = prd.emitted + prd.radiance * prod_brdf * next_ray_prod;
 
         float p = rnd(prd.seed);
         bool done = prd.done || (p > cont_prob);
 
-        direct /= cont_prob;
+        direct *= inv_cont_prob;
 
         ray_o = prd.origin;
         ray_d = prd.direction;
@@ -393,32 +413,30 @@ __global__ void __raygen__path_tracer() {
         float3 indirect = zerof3;
 
         prd.depth++;
-        while (!done) {
+        while (!done && prd.depth < 5) {
             traceRadiance(
                 params.handle,
                 ray_o,
                 ray_d,
-                0.0001f,  // tmin
+                0.000001f,  // tmin
                 1e16f,  // tmax
                 prd
             );
 
-            p = dot(prod_brdf * next_ray_prod * prd.next_ray_prod * prd.cur_brdf, {0.2126f, 0.7152f, 0.0722f});
-            done = prd.done || rnd(prd.seed) > p;
+            // p = dot(prod_brdf * next_ray_prod * prd.next_ray_prod * prd.cur_brdf, {0.2126f, 0.7152f, 0.0722f});
+            // done = prd.done || rnd(prd.seed) > p;
 
             // Russian Roulette
-            // p = rnd(prd.seed);
-            // done = prd.done || (p > cont_prob);
+            p = rnd(prd.seed);
+            done = prd.done || (p > cont_prob);
             if (done) {
                 break;
             }
 
-            float3 cur_rad = prd.radiance + prd.emitted;
-            indirect = indirect + (cur_rad * prod_brdf * next_ray_prod);
-            next_ray_prod *= prd.next_ray_prod.x / p;
+            indirect = indirect
+                       + (prd.emitted + prd.radiance) * prod_brdf * next_ray_prod;
+            next_ray_prod *= prd.next_ray_prod.x * inv_cont_prob;
             prod_brdf *= prd.cur_brdf;
-
-            // prd.brdf_prod /= p;
 
             ray_o = prd.origin;
             ray_d = prd.direction;
@@ -472,8 +490,7 @@ static __forceinline__ __device__ float3 getNormal(const HitGroupData* rt_data, 
     float w = bc.y;
     float u = 1.f - v - w;
 
-    float3 interpolated_normal = normalize(u * n1 + v * n2 + w * n3);
-    return interpolated_normal;
+    return  normalize(u * n1 + v * n2 + w * n3);
 }
 
 // The following functions handle BRDF calculations
@@ -499,15 +516,23 @@ static __forceinline__ __device__ float3 diffuse_brdf(const MaterialInfo& mat) {
 
 static __forceinline__ __device__ void specular_sample_next_ray(
     const float3 normal,
+    const float3 w_out,
     uint32_t& seed,
     float3& w_in,
     float&  inv_pdf
 ) {
+    float3 r = reflect(w_out, normal);
+
     const float z1 = rnd(seed);
     const float z2 = rnd(seed);
-    OrthonormalBasis onb(normal);
+    OrthonormalBasis onb(r);
 
-    sample_from_hemisphere(z1, z2, onb, w_in, inv_pdf);
+    //sample_from_hemisphere(z1, z2, onb, w_in, inv_pdf);
+    cosine_sample_from_hemisphere(z1, z2, onb, w_in, inv_pdf);
+    if (dot(w_in, normal) < 0.f) {
+        w_in = -w_in;
+    }
+
 }
 
 static __forceinline__ __device__ float3 specular_brdf(
@@ -516,18 +541,18 @@ static __forceinline__ __device__ float3 specular_brdf(
     const float3 w_in,
     const float3 w_out
 ) {
-
     float3 r = reflect(-w_in, norm);
     float3 ret = {0.f, 0.f, 0.f};
-    float r_dot_w = dot(r, w_out) - FLT_EPSILON;
+    float r_dot_w = dot(r, w_out);
     float n = mat.specular_n;
-    // if (mat.specular_n > 10 && norm.y > 0.9999f) {
+    // if (mat.specular_n > 10 && norm.y > 0.99999f) {
+    //     printf("\n\n");
     //     printFloat3(w_in);
     //     printFloat3(norm);
     //     printFloat3(w_out);
     //     printFloat3(r);
     //     printFloat3(mat.specular_color);
-    //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
+    //     printf("specular.n = %f, r_dot_w = %f\n\n\n", mat.specular_n, r_dot_w);
     // }
     // if (r_dot_w > 0.9f && r_dot_w < 0.95f) {
     //     // printFloat3(w_in);
@@ -560,9 +585,9 @@ static __forceinline__ __device__ float3 mirror_brdf(
     //     printFloat3(mat.specular_color);
     //     printf("specular.n = %f, r_dot_w = %f\n", mat.specular_n, r_dot_w);
     // }
-    if (fabsf(r_dot_w - 1.f) < 5e-6) {
+    //if (fabsf(r_dot_w - 1.f) < 5e-6) {
         ret = mat.specular_color / r_dot_w;
-    }
+    //}
     return ret;
 }
 
@@ -673,7 +698,6 @@ static __forceinline__ __device__ float3 glass_brdf(
     return ret;
 }
 
-
 // static __forceinline__ __device__ float3 refractive_brdf(
 //     const MaterialInfo& mat,
 //     const float3 norm,
@@ -712,17 +736,15 @@ __global__ void __closesthit__radiance() {
 
     const float3 N     = faceforward(n, -ray_dir, n);
     const float3 hit_p = optixGetWorldRayOrigin() + optixGetRayTmax() * ray_dir;
-    bool do_direct_light = true;
-
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    prd.emitted = mat.emission_color;
+    bool count_emitted = prd.depth == 0 || prd.direct_light_only;  // TODO: rename
 
-    // if(prd.depth == 0) {
-    //     prd.emitted = mat.emission_color;
-    // } else {
-    //     prd.emitted = make_float3( 0.0f );
-    // }
+    if(count_emitted) {
+        prd.emitted = mat.emission_color;
+    } else {
+        prd.emitted = make_float3( 0.0f );
+    }
 
     //float brdf_normalization = 1.f;
     float3 brdf_blend = zerof3;
@@ -734,19 +756,21 @@ __global__ void __closesthit__radiance() {
         switch(mat.model) {
         case PHONG_MODEL:
         {
-            diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
-            //brdf_blend += diffuse_brdf(mat);
-            if (mat.specular_n > 0.f) {
-                brdf_blend += specular_brdf(mat, N, w_in, -ray_dir);
+            if (mat.specular_n > 0.f && (mat.specular_color.x > 0.f || mat.specular_color.y > 0.f || mat.specular_color.z > 0.f)) {
+                specular_sample_next_ray(n, ray_dir, seed, w_in, inv_pdf);
+                brdf_blend = specular_brdf(mat, n, w_in, -ray_dir);
+                // prd.emitted = mat.emission_color;
+            } else {
+                diffuse_sample_next_ray(N, seed, w_in, inv_pdf);
+                brdf_blend = diffuse_brdf(mat);
             }
             break;
         }
         case MIRROR_MODEL:
-        case TRANSP_MODEL:
             w_in = reflect(ray_dir, N);
             inv_pdf = 1;
             brdf_blend += /*diffuse_brdf(mat) +*/ mirror_brdf(mat, N, w_in, -ray_dir);
-            do_direct_light = false; // sampled light is already direct
+            count_emitted = false; // sampled light is already direct
             break;
         // case TRANSP_MODEL:
         //     glass_sample_next_ray(mat, N, ray_dir, seed, w_in, inv_pdf);
@@ -756,6 +780,7 @@ __global__ void __closesthit__radiance() {
             printf("INVALID MATERIAL MODEL");
             return;
         }
+    case TRANSP_MODEL:
 
         // // Specular contribution
         // if (mat.specular_n > 0 && (
@@ -786,48 +811,57 @@ __global__ void __closesthit__radiance() {
         // int32_t ray_choice = int32_t(rnd(seed) * num_rays);
         prd.direction = w_in;
         prd.origin    = hit_p;
-        float wi_dot_n = fabsf(dot(w_in, N));
+        float wi_dot_n = dot(w_in, n);
 
         // scale by cos_theta and sampling probability.
-        prd.cur_brdf = brdf_blend;
+        prd.cur_brdf = brdf_blend;  // costheta
         prd.next_ray_prod.x = wi_dot_n * inv_pdf;
+
         //brdf_normalization = M_PIf;
     }
 
-    prd.direct_light_only = do_direct_light;
-    prd.done = false;
+    const float z1 = rnd(seed);
+    const float z2 = rnd(seed);
 
-    if (do_direct_light) {
-        const float z1 = rnd(seed);
-        const float z2 = rnd(seed);
-        prd.seed = seed;
+    ParallelogramLight light = params.light;
+    const float3 light_pos   = light.corner + light.v1 * z1 + light.v2 * z2;
 
-        ParallelogramLight light = params.light;
-        const float3 light_pos   = light.corner + light.v1 * z1 + light.v2 * z2;
+    // Calculate properties of light sample (for area based pdf)
+    const float  dist_to_light  = length(light_pos - hit_p);
+    const float3 light_dir      = normalize(light_pos - hit_p);
+    const float  norm_dot_light = dot(N, light_dir);
 
-        // Calculate properties of light sample (for area based pdf)
-        const float  dist_to_light  = length(light_pos - hit_p);
-        const float3 light_dir      = normalize(light_pos - hit_p);
-        const float  norm_dot_light = dot(N, light_dir);
+    const float  LnDl  = -dot(light.normal, light_dir);
 
-        const float  LnDl  = -dot(light.normal, light_dir);
+    // Direct light
+    if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
+        const bool occluded =
+            traceOcclusion(
+                params.handle,
+                hit_p,
+                light_dir,
+                0.0001f,         // tmin
+                dist_to_light);  // tmax
 
-        // Direct light
-        if( norm_dot_light > 0.0f && LnDl > 0.0f ) {
-            const bool occluded =
-                traceOcclusion(
-                    params.handle,
-                    hit_p,
-                    light_dir,
-                    0.0001f,         // tmin
-                    dist_to_light);  // tmax
-
-            if(!occluded) {
-                const float A = length(cross(light.v1, light.v2));
-                prd.radiance = light.emission * (norm_dot_light * LnDl* A) / (M_PIf * dist_to_light * dist_to_light);
+        if(!occluded) {
+            const float A = length(cross(light.v1, light.v2));            
+            float3 dl_brdf = zerof3;
+            // Calculate BRDF for the direct light direction. Only for Phong materials
+            // TODO: refactor
+            if (mat.specular_n > 0.f && (mat.specular_color.x > 0.f || mat.specular_color.y > 0.f || mat.specular_color.z > 0.f)) {
+                dl_brdf = specular_brdf(mat, n, light_dir, -ray_dir);
+                // prd.emitted = mat.emission_color;
+            } else {
+                dl_brdf = diffuse_brdf(mat);
             }
+            prd.radiance = dl_brdf * light.emission * (norm_dot_light * LnDl* A) / (M_PIf * dist_to_light * dist_to_light);
         }
     }
+
+    // Count (or don't count emitted for the next iteration)
+    prd.direct_light_only = count_emitted;
+    prd.done = false;
+    prd.seed = seed;
 
     storeClosesthitRadiancePRD(prd);
 }
