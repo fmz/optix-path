@@ -19,12 +19,12 @@ Please do not attempt to duplicate the given reference images; we have tools to 
 
 | `.ini` File To Produce Output | Expected Output | Your Output |
 | :---------------------------------------: | :--------------------------------------------------: | :-------------------------------------------------: |
-| cornell_box_full_lighting.ini |  ![](example-scenes/ground_truth/final/cornell_box_full_lighting.png) | ![Place cornell_box_full_lighting.png in student_outputs/final folder](student_outputs/final/cornell_box_full_lighting.png) |
-| cornell_box_direct_lighting_only.ini |  ![](example-scenes/ground_truth/final/cornell_box_direct_lighting_only.png) | ![Place cornell_box_direct_lighting_only.png in student_outputs/final folder](student_outputs/final/cornell_box_direct_lighting_only.png) |
-| cornell_box_full_lighting_low_probability.ini |  ![](example-scenes/ground_truth/final/cornell_box_full_lighting_low_probability.png) | ![Place cornell_box_full_lighting_low_probability.png in student_outputs/final folder](student_outputs/final/cornell_box_full_lighting_low_probability.png) |
-| mirror.ini |  ![](example-scenes/ground_truth/final/mirror.png) | ![Place mirror.png in student_outputs/final folder](student_outputs/final/mirror.png) |
-| glossy.ini |  ![](example-scenes/ground_truth/final/glossy.png) | ![Place glossy.png in student_outputs/final folder](student_outputs/final/glossy.png) |
-| refraction.ini |  ![](example-scenes/ground_truth/final/refraction.png) | ![Place refraction.png in student_outputs/final folder](student_outputs/final/refraction.png) |
+| cornell_box_full_lighting.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/cornell_box_full_lighting.png) | ![Place cornell_box_full_lighting.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/cornell_box_full_lighting.png) |
+| cornell_box_direct_lighting_only.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/cornell_box_direct_lighting_only.png) | ![Place cornell_box_direct_lighting_only.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/cornell_box_direct_lighting_only.png) |
+| cornell_box_full_lighting_low_probability.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/cornell_box_full_lighting_low_probability.png) | ![Place cornell_box_full_lighting_low_probability.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/cornell_box_full_lighting_low_probability.png) |
+| mirror.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/mirror.png) | ![Place mirror.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/mirror.png) |
+| glossy.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/glossy.png) | ![Place glossy.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/glossy.png) |
+| refraction.ini |  ![](SDK/path-fmz/example-scenes/ground_truth/final/refraction.png) | ![Place refraction.png in SDK/path-fmz/student_outputs/final folder](SDK/path-fmz/student_outputs/final/refraction.png) |
 
 > Note: The reference images above were produced using the [Extended Reinhard](https://64.github.io/tonemapping/#extended-reinhard) tone mapping function with minor gamma correction. You may choose to use another mapping function or omit gamma correction.
 
