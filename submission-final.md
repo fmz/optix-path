@@ -31,10 +31,25 @@ Please do not attempt to duplicate the given reference images; we have tools to 
 ### Design Choices
 Please list all the features your path tracer implements.
 
+This path tracer was written using NVIDIA's OptiX framework. The framework handles the following: creating acceleration structures, launching GPU threads, testing for intersection (using NVIDIA RTX). The shading code was written in CUDA C++.
+I had some trouble with calling into the tracer recursively, so I had to implement it iteratively.
+I did retain some of the CPU code that was submitted for the milestone, but it doesn't cover any BRDFs other than diffuse.
+
 ### Extra Features 
 Briefly explain your implementation of any extra features, provide output images, and describe what each image demonstrates.
 
+1. CUDA acceleration using OptiX as mentioned above. I got anywhere between 2-40 frames-per-second performance on a laptop RTX3060.
+2. I implemented importance sampling. For specular, I only used a pdf that depends on cos(psi) (rather than cos^n(psi))
+
+
+![cornell_box_full_lighting_no_importance](https://github.com/fmz/optix-path/assets/3928737/f7dbc186-ce26-4234-a951-51b7c0763172)
+
+![cornell_box_direct_lighting_only](https://github.com/fmz/optix-path/assets/3928737/489fa972-5867-4912-8303-99990b8e1240)
+
 ### Collaboration/References
+I used the OptiX SDK path-tracer example as a starter.
+I got some inspiration from the PBRT book.
+And I listened to the lectures more times than I could count :)
 
 ### Known Bugs
-
+The code is super ugly
