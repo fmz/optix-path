@@ -41,10 +41,11 @@ Briefly explain your implementation of any extra features, provide output images
 1. CUDA acceleration using OptiX as mentioned above. I got anywhere between 2-40 frames-per-second performance on a laptop RTX3060.
 2. I implemented importance sampling. For specular, I only used a pdf that depends on cos(psi) (rather than cos^n(psi))
 
+With importance sampling:
+![cornell_box_full_lighting](https://github.com/fmz/optix-path/assets/3928737/16aa0c5a-c393-4fc7-837e-d715eec4dd8d)
 
-![cornell_box_full_lighting_no_importance](https://github.com/fmz/optix-path/assets/3928737/f7dbc186-ce26-4234-a951-51b7c0763172)
-
-![cornell_box_direct_lighting_only](https://github.com/fmz/optix-path/assets/3928737/489fa972-5867-4912-8303-99990b8e1240)
+Without importance sampling:
+![cornell_box_full_lighting_no_importance](https://github.com/fmz/optix-path/assets/3928737/957ff851-cffc-4b4a-892c-69f74510a254)
 
 ### Collaboration/References
 I used the OptiX SDK path-tracer example as a starter.
