@@ -355,8 +355,9 @@ __global__ void __raygen__path_tracer() {
     const float3  U   = params.cam_u;
     const float3  V   = params.cam_v;
     const float3  W   = params.cam_w;
-    const float cont_prob     = params.continuation_prob;
-    const float inv_cont_prob = 1.f / cont_prob;
+    const float cont_prob         = params.continuation_prob;
+    const bool  direct_light_only = params.direct_light_only;
+    const float inv_cont_prob     = 1.f / cont_prob;
 
 
     const uint3   idx          = optixGetLaunchIndex();
@@ -403,7 +404,7 @@ __global__ void __raygen__path_tracer() {
         float3 direct = prd.emitted + prd.radiance * prod_brdf * next_ray_prod;
 
         float p = rnd(prd.seed);
-        bool done = prd.done || (p > cont_prob);
+        bool done = prd.done || (p > cont_prob) || direct_light_only;
 
         direct *= inv_cont_prob;
 
@@ -413,7 +414,7 @@ __global__ void __raygen__path_tracer() {
         float3 indirect = zerof3;
 
         prd.depth++;
-        while (!done && prd.depth < 5) {
+        while (!done) {
             traceRadiance(
                 params.handle,
                 ray_o,
@@ -433,8 +434,10 @@ __global__ void __raygen__path_tracer() {
                 break;
             }
 
+            float3 cur_rad = prd.radiance + prd.emitted;
+
             indirect = indirect
-                       + (prd.emitted + prd.radiance) * prod_brdf * next_ray_prod;
+                       + cur_rad * prod_brdf * next_ray_prod;
             next_ray_prod *= prd.next_ray_prod.x * inv_cont_prob;
             prod_brdf *= prd.cur_brdf;
 
@@ -628,16 +631,16 @@ static __forceinline__ __device__ void glass_sample_next_ray(
 
     if (z1 > schlick) {
         w_in = reflect(w_out, normal);
-        inv_pdf = 1.f/(1.f-schlick);
+        //inv_pdf = 1.f/(1.f-schlick);
     } else {
         float ior = back_hit ? (1.f/mat.ior) : mat.ior;
         refract(w_in, w_out, normal, ior);
 
-        // if (dot(w_in, w_in) == 0.f) {
-        //     // Total internal reflection
-        //     w_in = reflect(w_out, normal);
-        // }
-        inv_pdf = 1.f / schlick;
+        if (dot(w_in, w_in) == 0.f) {
+            // Total internal reflection
+            w_in = reflect(w_out, normal);
+        }
+        //inv_pdf = 1.f / schlick;
     }
 }
 

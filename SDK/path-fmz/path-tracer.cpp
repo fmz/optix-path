@@ -227,6 +227,7 @@ void initLaunchParams(PathTracerState& state, const TracerSettings& settings, Sc
 
     state.params.samples_per_launch = settings.samplesPerPixel;
     state.params.continuation_prob  = settings.pathContinuationProb;
+    state.params.direct_light_only  = settings.directLightingOnly;
     state.params.subframe_index     = 0u;
 
     state.params.light = sc.light;
@@ -632,11 +633,12 @@ void cleanupState(PathTracerState& state) {
 int32_t runTracer(
     const TracerSettings& settings,
     void* scene,
-    QRgb* data_out
+    QRgb* data_out,
+    const std::string out_filename
  ) {
     PathTracerState state;
-    state.params.width  = 1280;
-    state.params.height = 720;
+    state.params.width  = 512;
+    state.params.height = 512;
 
     sutil::CUDAOutputBufferType output_buffer_type = sutil::CUDAOutputBufferType::GL_INTEROP;
     // output_buffer_type = sutil::CUDAOutputBufferType::CUDA_DEVICE;
@@ -735,7 +737,8 @@ int32_t runTracer(
                 buffer.pixel_format = sutil::BufferImageFormat::UNSIGNED_BYTE4;
 
                 //data_out = reinterpret_cast<QRgb*>(output_buffer.getHostPointer());
-                sutil::saveImage("image_out.ppm", buffer, false );
+                sutil::saveImage(out_filename.c_str(), buffer, false );
+                std::cout << "Wrote rendered image to " << out_filename << std::endl;
             }
 
             if( output_buffer_type == sutil::CUDAOutputBufferType::GL_INTEROP ) {

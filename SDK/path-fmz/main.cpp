@@ -56,20 +56,20 @@ int main(int argc, char *argv[])
     QRgb *data = reinterpret_cast<QRgb *>(image.bits());
 
     mytimer t;
-    runTracer(tracer_settings, reinterpret_cast<void*>(scene), nullptr);
+    runTracer(tracer_settings, reinterpret_cast<void*>(scene), data, outputImagePath.toStdString());
     t.checkpoint();
 
     std::cout << "Traced paths in " << t.to_string() << std::endl;
     delete scene;
 
-    bool success = image.save(outputImagePath);
-    if(!success) {
-        success = image.save(outputImagePath, "PNG");
-    }
-    if(success) {
-        std::cout << "Wrote rendered image to " << outputImagePath.toStdString() << std::endl;
-    } else {
-        std::cerr << "Error: failed to write image to " << outputImagePath.toStdString() << std::endl;
-    }
+    // bool success = image.save(outputImagePath);
+    // if(!success) {
+    //     success = image.save(outputImagePath, "PNG");
+    // }
+    // if(success) {
+    //     std::cout << "Wrote rendered image to " << outputImagePath.toStdString() << std::endl;
+    // } else {
+    //     std::cerr << "Error: failed to write image to " << outputImagePath.toStdString() << std::endl;
+    // }
     a.exit();
 }

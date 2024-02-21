@@ -81,6 +81,7 @@ struct Params {
     uint32_t height;
     uint32_t samples_per_launch;
     float continuation_prob;
+    bool direct_light_only;
 
     float3 cam_eye;
     float3 cam_u, cam_v, cam_w;
